@@ -1,0 +1,21 @@
+{
+  "name": "gravity-protocol",
+  "version": "0.0.1",
+  "description": "Sample implementation of the protocol underlying the Gravity social network.",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/npfoss/gravity-protocol.git"
+  },
+  "author": "Nate Foss",
+  "bugs": {
+    "url": "https://github.com/npfoss/gravity-protocol/issues"
+  },
+  "homepage": "https://github.com/npfoss/gravity-protocol#readme",
+  "dependencies": {
+    "ipfs": "^0.36.4"
+  }
+}
