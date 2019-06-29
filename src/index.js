@@ -8,7 +8,7 @@ const FILE_TYPES = {
   DIRECTORY: 1,
 };
 // source: https://github.com/ipfs/js-ipfs/blob/master/examples/browser-mfs/filetree.js
-const loadFiles = async function (ipfs, path) {
+const loadDirs = async function (ipfs, path) {
   const output = {};
   path = path.replace(/\/\/+/g, '/');
 
@@ -22,7 +22,7 @@ const loadFiles = async function (ipfs, path) {
     output[entry.name] = entry;
 
     if (entry.type === FILE_TYPES.DIRECTORY) {
-      entry.contents = await loadFiles(ipfs, `${path}/${entry.name}`);
+      entry.contents = await loadDirs(ipfs, `${path}/${entry.name}`);
     }
   }
 
@@ -44,11 +44,11 @@ class GravityProtocol {
 			this.ready = true;
 		})
 
-		this.loadFiles = async function (path) {
+		this.loadDirs = async function (path) {
 			if (!this.ready){
 				throw new Error("IPFS node isn't ready yet");
 			}
-			return loadFiles(node, path)
+			return loadDirs(node, path)
 		}
 
 	}
