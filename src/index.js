@@ -1,6 +1,7 @@
 
 const IPFS = require('ipfs');
-const Cookies = require('js-cookie')
+const Cookies = require('js-cookie');
+const sodium = require('libsodium-wrappers');
 
 //*  UTILS
 const FILE_TYPES = {
@@ -33,27 +34,44 @@ const loadDirs = async function (ipfs, path) {
 //*  the protocol
 class GravityProtocol {
   constructor() {
+    let ipfsReady = false;
+    let sodiumReady = false;
+    this.ready = () => ipfsReady && sodiumReady;
+
     const node = new IPFS();
-
-    this.ready = false;
-
     node.on('ready', () => {
       // Ready to use!
       // See https://github.com/ipfs/js-ipfs#core-api
 
-      this.ready = true;
+      ipfsReady = true;
     });
 
-    this.loadDirs = async function (path) {
-      if (!this.ready) {
-        throw new Error("IPFS node isn't ready yet");
+    (async function awaitSodiumReady() {
+      await sodium.ready;
+      sodiumReady = true;
+    }());
+
+    this.loadDirs = async (path) => {
+      if (!this.ready()) {
+        throw new Error('Not ready yet');
       }
       return loadDirs(node, path);
     };
 
+    // use with caution
+    this.setMasterKey = (newkey) => {
+      Cookies.set('gravity-master-key', newkey, { secure: true });
+      // TODO: store somewhere better than in a cookie.
+      //  (only store a device key, keep master key enc in profile only)
+    };
 
-    console.log(Cookies.set('test', 'success'))
-    console.log(Cookies.get())
+    // use with caution
+    this.resetMasterKey = () => {
+
+    };
+
+    console.log(Cookies.set('test', 'success'));
+    console.log(Cookies.get());
   }
 }
 
