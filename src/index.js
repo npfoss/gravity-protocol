@@ -1,5 +1,6 @@
 
 const IPFS = require('ipfs');
+const Cookies = require('js-cookie')
 
 //*  UTILS
 const FILE_TYPES = {
@@ -49,6 +50,10 @@ class GravityProtocol {
       }
       return loadDirs(node, path);
     };
+
+
+    console.log(Cookies.set('test', 'success'))
+    console.log(Cookies.get())
   }
 }
 
