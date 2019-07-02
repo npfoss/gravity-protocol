@@ -5,6 +5,7 @@ const sodium = require('libsodium-wrappers');
 
 
 //*  UTILS
+
 const FILE_TYPES = {
   FILE: 0,
   DIRECTORY: 1,
@@ -30,6 +31,7 @@ const loadDirs = async function (ipfs, path) {
 
   return output;
 };
+
 // concatenates two Uint8Array objects
 const uintConcat = (a, b) => {
   const c = new Uint8Array(a.length + b.length);
@@ -38,6 +40,19 @@ const uintConcat = (a, b) => {
   return c;
 };
 
+// sleep nonblocking
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// for base64 string conversion to/from url safe strings (for pubkeys)
+const toURL64replacements = { '+': '.', '/': '_', '=': '-' };
+const fromURL64replacements = { '.': '+', '_': '/', '-': '=' };
+const base64toURL = s => {
+  return s.replace(/[+/=]+/g, c => toURL64replacements[c])
+}
+const URLtoBase64 = s => {
+  return s.replace(/[._-]+/g, c => fromURL64replacements[c])
+}
+
 
 //*  the protocol
 class GravityProtocol {
@@ -45,6 +60,13 @@ class GravityProtocol {
     let ipfsReady = false;
     let sodiumReady = false;
     this.ready = () => ipfsReady && sodiumReady;
+    this.readyAsync = async () => {
+      await sodium.ready;
+      while (!ipfsReady) {
+        await sleep(400)
+      }
+      return true;
+    }
 
     const node = new IPFS();
     node.on('ready', () => {
@@ -112,6 +134,12 @@ class GravityProtocol {
       const m = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
       return sodium.to_string(m);
     };
+
+    this.getNodeInfo = async () => {
+      await this.readyAsync();
+      return node.id()
+    }
+
   }
 }
 
