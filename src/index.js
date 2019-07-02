@@ -1,5 +1,3 @@
-// for eslint:
-/* global atob btoa */
 
 const IPFS = require('ipfs');
 const Cookies = require('js-cookie');
@@ -18,8 +16,8 @@ const loadDirs = async function (ipfs, path) {
 
   const contents = await ipfs.files.ls(cleanpath, {
     long: true,
-  })
-    .catch(error => console.error(error));
+  });
+  // .catch(error => console.error(error));
 
   for (let i = 0; i < contents.length; i += 1) {
     const entry = contents[i];
@@ -31,6 +29,13 @@ const loadDirs = async function (ipfs, path) {
   }
 
   return output;
+};
+// concatenates two Uint8Array objects
+const uintConcat = (a, b) => {
+  const c = new Uint8Array(a.length + b.length);
+  c.set(a);
+  c.set(b, a.length);
+  return c;
 };
 
 
@@ -83,6 +88,29 @@ class GravityProtocol {
         throw new Error('No master key');
       }
       return sodium.from_base64(cookie);
+    };
+
+    this.encrypt = (key, message) => {
+      // also prepends nonce
+      if (!this.ready()) {
+        throw new Error('Not ready yet');
+      }
+      const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+      return uintConcat(nonce, sodium.crypto_secretbox_easy(message, nonce, key));
+    };
+
+    this.decrypt = (key, nonceAndCiphertext) => {
+      if (!this.ready()) {
+        throw new Error('Not ready yet');
+      }
+      if (nonceAndCiphertext.length
+          < sodium.crypto_secretbox_NONCEBYTES + sodium.crypto_secretbox_MACBYTES) {
+        throw new Error('Short message');
+      }
+      const nonce = nonceAndCiphertext.slice(0, sodium.crypto_secretbox_NONCEBYTES);
+      const ciphertext = nonceAndCiphertext.slice(sodium.crypto_secretbox_NONCEBYTES);
+      const m = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
+      return sodium.to_string(m);
     };
   }
 }
