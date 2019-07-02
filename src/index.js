@@ -1,7 +1,10 @@
+// for eslint:
+/* global atob btoa */
 
 const IPFS = require('ipfs');
 const Cookies = require('js-cookie');
 const sodium = require('libsodium-wrappers');
+
 
 //*  UTILS
 const FILE_TYPES = {
@@ -60,18 +63,27 @@ class GravityProtocol {
 
     // use with caution
     this.setMasterKey = (newkey) => {
-      Cookies.set('gravity-master-key', newkey, { secure: true });
+      Cookies.set('gravity-master-key', newkey);// , { secure: true });
       // TODO: store somewhere better than in a cookie.
       //  (only store a device key, keep master key enc in profile only)
     };
 
     // use with caution
     this.resetMasterKey = () => {
-
+      if (!this.ready()) {
+        throw new Error('Not ready yet');
+      }
+      const key = sodium.crypto_secretbox_keygen();
+      this.setMasterKey(btoa(String.fromCharCode.apply(null, key)));
     };
 
-    console.log(Cookies.set('test', 'success'));
-    console.log(Cookies.get());
+    this.getMasterKey = () => {
+      const cookie = Cookies.get('gravity-master-key');
+      if (cookie === undefined) {
+        throw new Error('No master key');
+      }
+      return Uint8Array.from(atob(cookie), c => c.charCodeAt(0));
+    };
   }
 }
 
