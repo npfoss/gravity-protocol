@@ -54,9 +54,7 @@ class GravityProtocol {
       sodiumReady = true;
     }());
 
-    this.stop = () => {
-      return node.stop();
-    }
+    this.stop = () => node.stop();
 
     this.loadDirs = async (path) => {
       if (!this.ready()) {
