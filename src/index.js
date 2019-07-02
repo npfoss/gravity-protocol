@@ -74,7 +74,7 @@ class GravityProtocol {
         throw new Error('Not ready yet');
       }
       const key = sodium.crypto_secretbox_keygen();
-      this.setMasterKey(btoa(String.fromCharCode.apply(null, key)));
+      this.setMasterKey(sodium.to_base64(key));
     };
 
     this.getMasterKey = () => {
@@ -82,7 +82,7 @@ class GravityProtocol {
       if (cookie === undefined) {
         throw new Error('No master key');
       }
-      return Uint8Array.from(atob(cookie), c => c.charCodeAt(0));
+      return sodium.from_base64(cookie);
     };
   }
 }
