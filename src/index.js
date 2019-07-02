@@ -54,6 +54,10 @@ class GravityProtocol {
       sodiumReady = true;
     }());
 
+    this.stop = () => {
+      return node.stop();
+    }
+
     this.loadDirs = async (path) => {
       if (!this.ready()) {
         throw new Error('Not ready yet');

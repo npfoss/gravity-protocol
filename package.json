@@ -4,9 +4,9 @@
   "description": "Sample implementation of the protocol underlying the Gravity social network.",
   "main": "src/index.js",
   "scripts": {
-    "lint": "eslint src/",
-    "lint-fix": "eslint src/ --fix",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "lint": "eslint src/ test/",
+    "lint-fix": "eslint src/ test/ --fix",
+    "test": "mocha"
   },
   "repository": {
     "type": "git",
@@ -26,6 +26,7 @@
   "devDependencies": {
     "eslint": "^6.0.1",
     "eslint-config-airbnb-base": "^13.1.0",
-    "eslint-plugin-import": "^2.18.0"
+    "eslint-plugin-import": "^2.18.0",
+    "mocha": "^6.1.4"
   }
 }
