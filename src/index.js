@@ -68,7 +68,7 @@ class GravityProtocol {
 
     // use with caution
     this.setMasterKey = (newkey) => {
-      Cookies.set('gravity-master-key', newkey);// , { secure: true });
+      Cookies.set('gravity-master-key', newkey);// , { secure: true }); // for https only
       // TODO: store somewhere better than in a cookie.
       //  (only store a device key, keep master key enc in profile only)
     };
