@@ -44,14 +44,21 @@ const uintConcat = (a, b) => {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // for base64 string conversion to/from url safe strings (for pubkeys)
-const toURL64replacements = { '+': '.', '/': '_', '=': '-' };
-const fromURL64replacements = { '.': '+', '_': '/', '-': '=' };
-const base64toURL = s => {
-  return s.replace(/[+/=]+/g, c => toURL64replacements[c])
-}
-const URLtoBase64 = s => {
-  return s.replace(/[._-]+/g, c => fromURL64replacements[c])
-}
+// copies the format used by libsodium
+const toURL64replacements = { '+': '-', '/': '_', '=': '' };
+const fromURL64replacements = { '-': '+', _: '/' };
+const base64toURL = s => s.replace(/[+/=]+/g, c => toURL64replacements[c]);
+const URLtoBase64 = s => `${s.replace(/[._-]+/g, c => fromURL64replacements[c])}=`;
+
+// read/write file from MFS. making it a util so it's abstracted away and be changed later
+// returns promise
+const readFile = (ipfs, path) => ipfs.files.read(path);
+
+const writeFile = async (ipfs, path, data) =>
+  // TODO: might need to use locks when writing?
+  ipfs.files.write(path,
+    Buffer.from(data),
+    { parents: true, create: true, truncate: true });
 
 
 //*  the protocol
@@ -63,10 +70,10 @@ class GravityProtocol {
     this.readyAsync = async () => {
       await sodium.ready;
       while (!ipfsReady) {
-        await sleep(400)
+        await sleep(400);
       }
       return true;
-    }
+    };
 
     const node = new IPFS();
     node.on('ready', () => {
@@ -137,9 +144,72 @@ class GravityProtocol {
 
     this.getNodeInfo = async () => {
       await this.readyAsync();
-      return node.id()
-    }
+      return node.id();
+    };
 
+    this.getContacts = async () => {
+      await this.readyAsync();
+
+      const mkey = this.getMasterKey();
+      return readFile(node, '/private/contacts.json.enc')
+        .then(contacts => JSON.parse(this.decrypt(mkey, contacts)))
+        .catch((err) => {
+          console.log("got this error but we're handling it:");
+          console.log(err);
+          return {};
+        });
+    };
+
+    // checks if already in contacts
+    // adds a file in the subscribers folder for this friend so they can find the shared secret
+    // adds them as contact (record shared secret, etc)
+    this.addSubscriber = async (publicKey_) => {
+      await this.readyAsync();
+      const publicKey = base64toURL(publicKey_);
+
+      const contacts = await this.getContacts();
+      let mySecret;
+      let nonce;
+      let rewrite = false;
+      const promisesToWaitFor = [];
+
+      if (!(publicKey in contacts)) {
+        contacts[publicKey] = [];
+      }
+
+      if ('my-secret' in contacts[publicKey]) {
+        // 'my-secret' as opposed to 'their-secret', which is in their profile for me
+        //  these are the symmetric keys used for everything between me and them
+        mySecret = sodium.from_base64(contacts[publicKey]['my-secret']);
+      } else {
+        rewrite = true;
+        mySecret = sodium.crypto_secretbox_keygen();
+        contacts[publicKey]['my-secret'] = sodium.to_base64(mySecret);
+      }
+
+      if ('my-secret-nonce' in contacts[publicKey]) {
+        nonce = sodium.from_base64(contacts[publicKey]['my-secret-nonce']);
+      } else {
+        rewrite = true;
+        nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+      }
+
+      if (rewrite) {
+        // const encContacts =
+        // promisesToWaitFor.push(writeFile(node, '/private/contacts.json.enc', JSON.stringify(encContacts)));
+      }
+
+      const message = `Hello ${publicKey} ${sodium.to_base64(mySecret)} ${sodium.to_base64(nonce)}`;
+      console.log(message);
+
+      // have to encrypt the thing regardless to check if it's already there
+      const ciphertext = sodium.crypto_box_seal();
+
+      // actually don't even need to check because we'd be replacing it with the same thing...
+
+
+      return mySecret;
+    };
   }
 }
 
