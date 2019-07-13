@@ -119,34 +119,36 @@ const decAsymm = async (ipfs, ciphertext) => {
 //*  the protocol
 class GravityProtocol {
   constructor() {
-    let ipfsReady = false;
-    let sodiumReady = false;
-    this.ready = () => ipfsReady && sodiumReady;
-    this.readyAsync = async () => {
-      await sodium.ready;
-      while (!ipfsReady) {
+    let ipfsReadyFlag = false;
+    let sodiumReadyFlag = false;
+    this.ipfsReady = async () => {
+      while (!ipfsReadyFlag) {
         await sleep(400);
       }
       return true;
-    };
+    }
+    this.sodiumReady = async () => {
+      return await sodium.ready;
+    }
 
     const node = new IPFS();
     node.on('ready', () => {
       // Ready to use!
       // See https://github.com/ipfs/js-ipfs#core-api
 
-      ipfsReady = true;
+      ipfsReadyFlag = true;
+
+      // node.files.rm('/private', { recursive: true });
     });
 
     (async function awaitSodiumReady() {
       await sodium.ready;
-      sodiumReady = true;
+      sodiumReadyFlag = true;
     }());
 
     this.loadDirs = async (path) => {
-      if (!this.ready()) {
-        throw new Error('Not ready yet');
-      }
+      await this.ipfsReady();
+
       return loadDirs(node, path);
     };
 
@@ -159,7 +161,7 @@ class GravityProtocol {
 
     // use with caution
     this.resetMasterKey = () => {
-      if (!this.ready()) {
+      if (!sodiumReadyFlag) {
         throw new Error('Not ready yet');
       }
       const key = sodium.crypto_secretbox_keygen();
@@ -168,6 +170,9 @@ class GravityProtocol {
     };
 
     this.getMasterKey = () => {
+      if (!sodiumReadyFlag) {
+        throw new Error('Not ready yet');
+      }
       const cookie = Cookies.get('gravity-master-key');
       if (cookie === undefined) {
         throw new Error('No master key');
@@ -177,7 +182,7 @@ class GravityProtocol {
 
     this.encrypt = (key, message) => {
       // also prepends nonce
-      if (!this.ready()) {
+      if (!sodiumReadyFlag) {
         throw new Error('Not ready yet');
       }
       const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
@@ -185,7 +190,7 @@ class GravityProtocol {
     };
 
     this.decrypt = (key, nonceAndCiphertext) => {
-      if (!this.ready()) {
+      if (!sodiumReadyFlag) {
         throw new Error('Not ready yet');
       }
       if (nonceAndCiphertext.length
@@ -199,12 +204,12 @@ class GravityProtocol {
     };
 
     this.getNodeInfo = async () => {
-      await this.readyAsync();
+      await this.ipfsReady();
       return node.id();
     };
 
     this.getContacts = async () => {
-      await this.readyAsync();
+      await this.ipfsReady();
 
       const mkey = this.getMasterKey();
       return readFile(node, '/private/contacts.json.enc')
@@ -220,7 +225,8 @@ class GravityProtocol {
     // adds a file in the subscribers folder for this friend so they can find the shared secret
     // adds them as contact (record shared secret, etc)
     this.addSubscriber = async (publicKey_) => {
-      await this.readyAsync();
+      await this.ipfsReady();
+      await this.sodiumReady();
 
       /* note: choosing to do everything with their true public key in a standard format
        *  because if we were to use the short IPFS ones (Qm...8g) it would change every time their
@@ -260,8 +266,6 @@ class GravityProtocol {
       await Promise.all(promisesToWaitFor);
       return mySecret;
     };
-
-    // await node.files.rm('/private', { recursive: true })
   }
 }
 
