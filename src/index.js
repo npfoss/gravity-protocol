@@ -120,16 +120,13 @@ const decAsymm = async (ipfs, ciphertext) => {
 class GravityProtocol {
   constructor() {
     let ipfsReadyFlag = false;
-    let sodiumReadyFlag = false;
     this.ipfsReady = async () => {
       while (!ipfsReadyFlag) {
         await sleep(400);
       }
       return true;
-    }
-    this.sodiumReady = async () => {
-      return await sodium.ready;
-    }
+    };
+    this.sodiumReady = sodium.ready;
 
     const node = new IPFS();
     node.on('ready', () => {
@@ -140,11 +137,6 @@ class GravityProtocol {
 
       // node.files.rm('/private', { recursive: true });
     });
-
-    (async function awaitSodiumReady() {
-      await sodium.ready;
-      sodiumReadyFlag = true;
-    }());
 
     this.loadDirs = async (path) => {
       await this.ipfsReady();
@@ -160,19 +152,17 @@ class GravityProtocol {
     };
 
     // use with caution
-    this.resetMasterKey = () => {
-      if (!sodiumReadyFlag) {
-        throw new Error('Not ready yet');
-      }
+    this.resetMasterKey = async () => {
+      await this.sodiumReady();
+
       const key = sodium.crypto_secretbox_keygen();
       this.setMasterKey(sodium.to_base64(key));
       return key;
     };
 
-    this.getMasterKey = () => {
-      if (!sodiumReadyFlag) {
-        throw new Error('Not ready yet');
-      }
+    this.getMasterKey = async () => {
+      await this.sodiumReady();
+
       const cookie = Cookies.get('gravity-master-key');
       if (cookie === undefined) {
         throw new Error('No master key');
@@ -180,19 +170,17 @@ class GravityProtocol {
       return sodium.from_base64(cookie);
     };
 
-    this.encrypt = (key, message) => {
+    this.encrypt = async (key, message) => {
       // also prepends nonce
-      if (!sodiumReadyFlag) {
-        throw new Error('Not ready yet');
-      }
+      await this.sodiumReady();
+
       const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
       return uintConcat(nonce, sodium.crypto_secretbox_easy(message, nonce, key));
     };
 
-    this.decrypt = (key, nonceAndCiphertext) => {
-      if (!sodiumReadyFlag) {
-        throw new Error('Not ready yet');
-      }
+    this.decrypt = async (key, nonceAndCiphertext) => {
+      await this.sodiumReady();
+
       if (nonceAndCiphertext.length
           < sodium.crypto_secretbox_NONCEBYTES + sodium.crypto_secretbox_MACBYTES) {
         throw new Error('Short message');
@@ -211,9 +199,9 @@ class GravityProtocol {
     this.getContacts = async () => {
       await this.ipfsReady();
 
-      const mkey = this.getMasterKey();
+      const mkey = await this.getMasterKey();
       return readFile(node, '/private/contacts.json.enc')
-        .then(contacts => JSON.parse(this.decrypt(mkey, contacts)))
+        .then(async contacts => JSON.parse(await this.decrypt(mkey, contacts)))
         .catch((err) => {
           console.log("got this error but we're handling it:");
           console.log(err);
@@ -251,7 +239,7 @@ class GravityProtocol {
         contacts[publicKey]['my-secret'] = sodium.to_base64(mySecret);
 
         // also save it for important future use
-        const encContacts = this.encrypt(this.getMasterKey(), JSON.stringify(contacts));
+        const encContacts = await this.encrypt(await this.getMasterKey(), JSON.stringify(contacts));
         promisesToWaitFor.push(writeFile(node, '/private/contacts.json.enc', encContacts));
       }
 
