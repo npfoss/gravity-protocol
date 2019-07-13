@@ -19,9 +19,13 @@
   },
   "homepage": "https://github.com/npfoss/gravity-protocol#readme",
   "dependencies": {
+    "buffer": "^5.2.1",
     "ipfs": "^0.36.4",
     "js-cookie": "^2.2.0",
-    "libsodium-wrappers": "^0.7.4"
+    "libp2p-crypto": "^0.17.0",
+    "libsodium-wrappers": "^0.7.4",
+    "multihashing": "^0.3.3",
+    "node-rsa": "^1.0.5"
   },
   "devDependencies": {
     "eslint": "^6.0.1",

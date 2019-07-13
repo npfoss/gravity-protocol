@@ -2,6 +2,9 @@
 const IPFS = require('ipfs');
 const Cookies = require('js-cookie');
 const sodium = require('libsodium-wrappers');
+const multihashing = require('multihashing');
+const libp2pcrypto = require('libp2p-crypto');
+const NodeRSA = require('node-rsa');
 
 
 //*  UTILS
@@ -54,11 +57,63 @@ const URLtoBase64 = s => `${s.replace(/[._-]+/g, c => fromURL64replacements[c])}
 // returns promise
 const readFile = (ipfs, path) => ipfs.files.read(path);
 
-const writeFile = async (ipfs, path, data) =>
+const writeFile = async (ipfs, path, data) => {
   // TODO: might need to use locks when writing?
-  ipfs.files.write(path,
-    Buffer.from(data),
-    { parents: true, create: true, truncate: true });
+  ipfs.files.write(path, Buffer.from(data), { parents: true, create: true, truncate: true });
+};
+
+// use standard format for public keys
+/* supports:
+    * IPFS protobuf-encoded 2048 bit RSA key --> pkcs8 pem
+*/
+const toStandardPublicKeyFormat = (publicKey) => {
+  if (publicKey.length === 400) {
+    // probably an IPFS protobuf-encoded 2048 bit RSA key
+
+    const buf = Buffer.from(publicKey, 'base64');
+    // eslint-disable-next-line no-underscore-dangle
+    const tempPub = libp2pcrypto.keys.unmarshalPublicKey(buf)._key;
+
+    const key = new NodeRSA();
+    key.importKey({
+      n: Buffer.from(tempPub.n, 'base64'),
+      e: Buffer.from(tempPub.e, 'base64'),
+    }, 'components-public');
+
+    return key.exportKey('pkcs8-public-pem');
+  }
+  throw new Error('Unrecognized public key type');
+};
+// encrypt things with public keys
+// returns ciphertext as buffer
+// supports: RSA,
+const encAsymm = async (publicKey, message) => {
+  const key = new NodeRSA();
+  key.importKey(publicKey);
+  return key.encrypt(message);
+};
+
+// decrypt with ipfs node's private key
+// returns decrypted stuff as buffer
+// supports RSA,
+const decAsymm = async (ipfs, ciphertext) => {
+  // eslint-disable-next-line no-underscore-dangle
+  const privateKey = ipfs._peerInfo.id._privKey._key;
+
+  const privkey = new NodeRSA();
+  privkey.importKey({
+    n: Buffer.from(privateKey.n, 'base64'),
+    e: Buffer.from(privateKey.e, 'base64'),
+    d: Buffer.from(privateKey.d, 'base64'),
+    p: Buffer.from(privateKey.p, 'base64'),
+    q: Buffer.from(privateKey.q, 'base64'),
+    dmp1: Buffer.from(privateKey.dp, 'base64'),
+    dmq1: Buffer.from(privateKey.dq, 'base64'),
+    coeff: Buffer.from(privateKey.qi, 'base64'),
+  }, 'components');
+
+  return privkey.decrypt(ciphertext);
+};
 
 
 //*  the protocol
@@ -165,16 +220,19 @@ class GravityProtocol {
     // adds them as contact (record shared secret, etc)
     this.addSubscriber = async (publicKey_) => {
       await this.readyAsync();
-      const publicKey = base64toURL(publicKey_);
+
+      /* note: choosing to do everything with their true public key in a standard format
+       *  because if we were to use the short IPFS ones (Qm...8g) it would change every time their
+       *  protobuf format changed (i.e. they add support for another key type)
+       */
+      const publicKey = toStandardPublicKeyFormat(publicKey_);
 
       const contacts = await this.getContacts();
       let mySecret;
-      let nonce;
-      let rewrite = false;
       const promisesToWaitFor = [];
 
       if (!(publicKey in contacts)) {
-        contacts[publicKey] = [];
+        contacts[publicKey] = {};
       }
 
       if ('my-secret' in contacts[publicKey]) {
@@ -182,34 +240,27 @@ class GravityProtocol {
         //  these are the symmetric keys used for everything between me and them
         mySecret = sodium.from_base64(contacts[publicKey]['my-secret']);
       } else {
-        rewrite = true;
         mySecret = sodium.crypto_secretbox_keygen();
         contacts[publicKey]['my-secret'] = sodium.to_base64(mySecret);
+
+        // also save it for important future use
+        const encContacts = this.encrypt(this.getMasterKey(), JSON.stringify(contacts));
+        promisesToWaitFor.push(writeFile(node, '/private/contacts.json.enc', encContacts));
       }
 
-      if ('my-secret-nonce' in contacts[publicKey]) {
-        nonce = sodium.from_base64(contacts[publicKey]['my-secret-nonce']);
-      } else {
-        rewrite = true;
-        nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
-      }
+      const message = `Hello ${publicKey} : ${sodium.to_base64(mySecret)}`;
+      const ciphertext = await encAsymm(publicKey, message);
+      const hash = multihashing.multihash.toB58String(multihashing(message, 'sha2-256'));
 
-      if (rewrite) {
-        // const encContacts =
-        // promisesToWaitFor.push(writeFile(node, '/private/contacts.json.enc', JSON.stringify(encContacts)));
-      }
+      // just write it regardless;
+      //  if it's already there we'll have used the same secret and same name anyways
+      promisesToWaitFor.push(writeFile(node, `/subscribers/${hash}`, ciphertext));
 
-      const message = `Hello ${publicKey} ${sodium.to_base64(mySecret)} ${sodium.to_base64(nonce)}`;
-      console.log(message);
-
-      // have to encrypt the thing regardless to check if it's already there
-      const ciphertext = sodium.crypto_box_seal();
-
-      // actually don't even need to check because we'd be replacing it with the same thing...
-
-
+      await Promise.all(promisesToWaitFor);
       return mySecret;
     };
+
+    // await node.files.rm('/private', { recursive: true })
   }
 }
 
