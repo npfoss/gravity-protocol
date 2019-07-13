@@ -2,6 +2,10 @@
 
 Sample implementation of the protocol underlying the Gravity social network.
 
+# contribute
+
+Please lint with `npm run lint-fix`.
+
 # Acknowledgements
 
 - original idea was [Nate Foss](https://github.com/npfoss)
