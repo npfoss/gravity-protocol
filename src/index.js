@@ -164,6 +164,7 @@ class GravityProtocol {
       }
       const key = sodium.crypto_secretbox_keygen();
       this.setMasterKey(sodium.to_base64(key));
+      return key;
     };
 
     this.getMasterKey = () => {
