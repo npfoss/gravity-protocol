@@ -196,6 +196,13 @@ class GravityProtocol {
       return node.id();
     };
 
+    // returns the top level profile hash, the one that should be publicized in the DHT
+    this.getProfileHash = async () => {
+      await this.ipfsReady();
+
+      return (await node.files.stat('/')).hash;
+    }
+
     this.getContacts = async () => {
       await this.ipfsReady();
 
