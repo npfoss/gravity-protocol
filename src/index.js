@@ -126,7 +126,7 @@ class GravityProtocol {
       }
       return true;
     };
-    this.sodiumReady = sodium.ready;
+    this.sodiumReady = async () => sodium.ready;
 
     const node = new IPFS();
     node.on('ready', () => {
