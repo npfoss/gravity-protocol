@@ -96,10 +96,7 @@ const encAsymm = async (publicKey, message) => {
 // decrypt with ipfs node's private key
 // returns decrypted stuff as buffer
 // supports RSA,
-const decAsymm = async (ipfs, ciphertext) => {
-  // eslint-disable-next-line no-underscore-dangle
-  const privateKey = ipfs._peerInfo.id._privKey._key;
-
+const decAsymm = async (privateKey, ciphertext) => {
   const privkey = new NodeRSA();
   privkey.importKey({
     n: Buffer.from(privateKey.n, 'base64'),
@@ -115,6 +112,27 @@ const decAsymm = async (ipfs, ciphertext) => {
   return privkey.decrypt(ciphertext);
 };
 
+// returns the one successful promise from a list, or rejects with list of errors
+// copied from: https://stackoverflow.com/a/37235274/7343159
+/* eslint-disable arrow-body-style */
+const returnSuccessful = (promises) => {
+  return Promise.all(promises.map((p) => {
+    // If a request fails, count that as a resolution so it will keep
+    // waiting for other possible successes. If a request succeeds,
+    // treat it as a rejection so Promise.all immediately bails out.
+    return p.then(
+      val => Promise.reject(val),
+      err => Promise.resolve(err),
+    );
+  })).then(
+    // If '.all' resolved, we've just got an array of errors.
+    errors => Promise.reject(errors),
+    // If '.all' rejected, we've got the result we wanted.
+    val => Promise.resolve(val),
+  );
+};
+/* eslint-enable arrow-body-style */
+
 
 //*  the protocol
 class GravityProtocol {
@@ -122,6 +140,7 @@ class GravityProtocol {
     let ipfsReadyFlag = false;
     this.ipfsReady = async () => {
       while (!ipfsReadyFlag) {
+        // eslint-disable-next-line no-await-in-loop
         await sleep(400);
       }
       return true;
@@ -201,7 +220,7 @@ class GravityProtocol {
       await this.ipfsReady();
 
       return (await node.files.stat('/')).hash;
-    }
+    };
 
     this.getContacts = async () => {
       await this.ipfsReady();
@@ -260,6 +279,36 @@ class GravityProtocol {
 
       await Promise.all(promisesToWaitFor);
       return mySecret;
+    };
+
+    // given the path to the subscribers folder of someone else's profile,
+    // try to decrypt each blob in order to find the one intended for you
+    // returns the shared secret as buffer/Uint8Array
+    this.testDecryptAllSubscribers = async (path) => {
+      // TODO: check if the one you remember (from contacts) is still there first,
+      //    in a function that would otherwise call this
+      await this.ipfsReady();
+      await this.sodiumReady();
+
+      // eslint-disable-next-line no-underscore-dangle
+      const privateKey = node._peerInfo.id._privKey._key;
+
+      const lst = await node.ls(path);
+
+      const promises = lst.map(async (obj) => {
+        const ciphertext = await node.cat(obj.hash);
+
+        // RSA lib will err if key is wrong. this is good. it gets trapped in the promise correctly
+        const res = (await decAsymm(privateKey, ciphertext)).toString();
+
+        if (res.slice(0, 5) !== 'Hello') {
+          throw new Error('Decrypted message not in the correct format');
+        }
+
+        return res.split(': ').pop();
+      });
+
+      return sodium.from_base64(await returnSuccessful(promises));
     };
   }
 }
