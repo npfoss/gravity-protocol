@@ -320,7 +320,7 @@ class GravityProtocol {
     // returns the most recent top level hash of the profile associated with the given public key
     // ^^ well, it's supposed to. doesn't yet. TODO
     this.getProfileHash = async (publicKey) => {
-      console.log(`warning: not actually looking up the given profile: ${publicKey}`);
+      console.log(`warning: not actually looking up the given profile: "${publicKey}"`);
       // replace this with whatever hardcoded hash you're testing
       return 'QmRMtCEBe3t6nFfr4Ne9pqmQo4eVweuh9hv8NSoA59579m';
     };
