@@ -324,6 +324,20 @@ class GravityProtocol {
       // replace this with whatever hardcoded hash you're testing
       return 'QmRMtCEBe3t6nFfr4Ne9pqmQo4eVweuh9hv8NSoA59579m';
     };
+
+    // takes a list of public keys and creates a new group with those people
+    // does not fill in any optional details, that's left to other functions
+    //  --> i.e. default group is anonymous, recipients don't know the other recipients
+    // if a given public key is not already in this node's contacts, an error is thrown
+    //  --> because this function doesn't know the context for that public key,
+    //      and it's important to categorize people (into friends, family, etc) as they come in.
+    // returns group name/salt (same thing)
+    this.createGroup = async (publicKeys) => {
+      await this.sodiumReady();
+      await this.ipfsReady();
+
+      
+    }
   }
 }
 
