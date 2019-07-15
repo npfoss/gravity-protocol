@@ -28,6 +28,8 @@ const loadDirs = async function (ipfs, path) {
     output[entry.name] = entry;
 
     if (entry.type === FILE_TYPES.DIRECTORY) {
+      // TODO: don't await in loop! use promises better, or something
+      // eslint-disable-next-line no-await-in-loop
       entry.contents = await loadDirs(ipfs, `${cleanpath}/${entry.name}`);
     }
   }
@@ -48,10 +50,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // for base64 string conversion to/from url safe strings (for pubkeys)
 // copies the format used by libsodium
+/* eslint-disable */
+// RE-ENABLE ONCE THEY'RE USED
 const toURL64replacements = { '+': '-', '/': '_', '=': '' };
 const fromURL64replacements = { '-': '+', _: '/' };
 const base64toURL = s => s.replace(/[+/=]+/g, c => toURL64replacements[c]);
 const URLtoBase64 = s => `${s.replace(/[._-]+/g, c => fromURL64replacements[c])}=`;
+/* eslint-enable */
 
 // read/write file from MFS. making it a util so it's abstracted away and be changed later
 // returns promise
@@ -216,7 +221,7 @@ class GravityProtocol {
     };
 
     // returns the top level profile hash, the one that should be publicized in the DHT
-    this.getProfileHash = async () => {
+    this.getMyProfileHash = async () => {
       await this.ipfsReady();
 
       return (await node.files.stat('/')).hash;
@@ -309,6 +314,15 @@ class GravityProtocol {
       });
 
       return sodium.from_base64(await returnSuccessful(promises));
+    };
+
+    // TODO: should query IPNS (DHT). hardcoded for now to unblock other stuff
+    // returns the most recent top level hash of the profile associated with the given public key
+    // ^^ well, it's supposed to. doesn't yet. TODO
+    this.getProfileHash = async (publicKey) => {
+      console.log(`warning: not actually looking up the given profile: ${publicKey}`);
+      // replace this with whatever hardcoded hash you're testing
+      return 'QmRMtCEBe3t6nFfr4Ne9pqmQo4eVweuh9hv8NSoA59579m';
     };
   }
 }
