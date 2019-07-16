@@ -67,6 +67,10 @@ const writeFile = async (ipfs, path, data) => {
   ipfs.files.write(path, Buffer.from(data), { parents: true, create: true, truncate: true });
 };
 
+// for convenience and clarity since this gets used a lot
+// generates multihash and returns base 58 string
+const hashfunc = message => multihashing.multihash.toB58String(multihashing(message, 'sha2-256'));
+
 // use standard format for public keys
 /* supports:
     * IPFS protobuf-encoded 2048 bit RSA key --> pkcs8 pem
@@ -159,8 +163,20 @@ class GravityProtocol {
 
       ipfsReadyFlag = true;
 
-      // node.files.rm('/private', { recursive: true });
+      node.files.rm('/groups', { recursive: true }).catch(() => {});
     });
+
+
+    this.getNodeInfo = async () => {
+      await this.ipfsReady();
+      return node.id();
+    };
+
+    // returns this instance's public key
+    this.getPublicKey = async () => {
+      const info = await this.getNodeInfo();
+      return toStandardPublicKeyFormat(info.publicKey);
+    };
 
     this.loadDirs = async (path) => {
       await this.ipfsReady();
@@ -213,11 +229,6 @@ class GravityProtocol {
       const ciphertext = nonceAndCiphertext.slice(sodium.crypto_secretbox_NONCEBYTES);
       const m = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
       return sodium.to_string(m);
-    };
-
-    this.getNodeInfo = async () => {
-      await this.ipfsReady();
-      return node.id();
     };
 
     // returns the top level profile hash, the one that should be publicized in the DHT
@@ -276,7 +287,7 @@ class GravityProtocol {
 
       const message = `Hello ${publicKey} : ${sodium.to_base64(mySecret)}`;
       const ciphertext = await encAsymm(publicKey, message);
-      const hash = multihashing.multihash.toB58String(multihashing(message, 'sha2-256'));
+      const hash = hashfunc(message);
 
       // just write it regardless;
       //  if it's already there we'll have used the same secret and same name anyways
@@ -326,8 +337,10 @@ class GravityProtocol {
     };
 
     // takes a list of public keys and creates a new group with those people
-    // does not fill in any optional details, that's left to other functions
-    //  --> i.e. default group is anonymous, recipients don't know the other recipients
+    //       // does not fill in any optional details, that's left to other functions
+    //       //  --> i.e. default group is anonymous, recipients don't know the other recipients
+    // actually, I changed my mind about that^ for now
+    //  because it's convenient to automatically generate the member list
     // if a given public key is not already in this node's contacts, an error is thrown
     //  --> because this function doesn't know the context for that public key,
     //      and it's important to categorize people (into friends, family, etc) as they come in.
@@ -336,8 +349,38 @@ class GravityProtocol {
       await this.sodiumReady();
       await this.ipfsReady();
 
-      
-    }
+      const contacts = await this.getContacts();
+
+      const missing = publicKeys.filter(k => !(k in contacts));
+      if (missing.length > 0) {
+        throw new Error(`Add the following public keys to your contacts first! ${missing}`);
+      }
+
+      const salt = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+      const groupKey = sodium.crypto_secretbox_keygen();
+      const groupdir = `/groups/${sodium.to_base64(salt)}`;
+
+      // create folder for this group
+      await node.files.mkdir(groupdir, { parents: true });
+
+      const message = `[${sodium.to_base64(groupKey)}]`;
+
+      const promises = publicKeys.map(async (pk) => {
+        const sharedKey = sodium.from_base64(contacts[pk]['my-secret']);
+        const name = hashfunc(uintConcat(salt, sharedKey));
+        const ciphertext = await this.encrypt(sharedKey, message);
+        return writeFile(node, `${groupdir}/${name}`, ciphertext);
+      });
+
+      // also add myself to the group
+      const sharedKey = await this.getMasterKey();
+      const ciphertext = await this.encrypt(sharedKey, message);
+      promises.push(writeFile(node, `${groupdir}/me`, ciphertext));
+
+      await Promise.all(promises);
+
+      return salt;
+    };
   }
 }
 
