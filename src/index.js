@@ -71,6 +71,7 @@ const writeFile = async (ipfs, path, data) => {
 /* supports:
     * IPFS protobuf-encoded 2048 bit RSA key --> pkcs8 pem
 */
+// TODO:::: SUPPORT ED25519! the bug was figured out: https://github.com/ipfs/js-ipfs/issues/2261
 const toStandardPublicKeyFormat = (publicKey) => {
   if (publicKey.length === 400) {
     // probably an IPFS protobuf-encoded 2048 bit RSA key
