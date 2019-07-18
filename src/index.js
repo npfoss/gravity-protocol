@@ -119,6 +119,14 @@ const returnSuccessful = (promises) => {
 };
 /* eslint-enable arrow-body-style */
 
+// UUID generator, taken from
+//  https://stackoverflow.com/questions/105034/create-guid-uuid-in-javascript/2117523#2117523
+function uuidv4() {
+  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+  )
+}
+
 
 //*  the protocol
 class GravityProtocol {
@@ -426,7 +434,8 @@ class GravityProtocol {
     //  --> because this function doesn't know the context for that public key,
     //      and it's important to categorize people (into friends, family, etc) as they come in.
     // returns group name/salt (same thing)
-    this.createGroup = async (publicKeys) => {
+    // groupID is optional. useful if you're trying to semantically link this group to a friend's
+    this.createGroup = async (publicKeys, /* optional */ groupID) => {
       await this.sodiumReady();
       await this.ipfsReady();
 
@@ -457,6 +466,12 @@ class GravityProtocol {
       const sharedKey = await this.getMasterKey();
       const ciphertext = await this.encrypt(sharedKey, message);
       promises.push(writeFile(node, `${groupdir}/me`, ciphertext));
+
+      // generate and add a UUID if an ID wasn't provided
+      let groupInfo = {};
+      groupInfo.id = groupID || uuidv4();
+      const infoEnc = await this.encrypt(groupKey, JSON.stringify(groupInfo));
+      promises.push(writeFile(node, `${groupdir}/info.json.enc`, infoEnc));
 
       await Promise.all(promises);
 
