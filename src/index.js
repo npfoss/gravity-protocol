@@ -150,7 +150,7 @@ class GravityProtocol {
 
       ipfsReadyFlag = true;
 
-      node.files.rm('/groups', { recursive: true }).catch(() => {});
+      // node.files.rm('/groups', { recursive: true }).catch(() => {});
     });
 
 
