@@ -362,7 +362,7 @@ class GravityProtocol {
 
 
     // returns the group key for the given group
-    // no 'this' because I'm trying to avoid exposing keys
+    // no 'this' because I'm trying to make it harder to accidentally mishandle keys
     const getGroupKey = async (groupSalt) => {
       await this.sodiumReady();
       await this.ipfsReady();
@@ -375,7 +375,7 @@ class GravityProtocol {
     // returns the info JSON for the given group
     this.getGroupInfo = async (groupSalt) => {
       await this.ipfsReady();
-      
+
       const groupKey = await getGroupKey(groupSalt);
       let enc;
       try {
@@ -503,6 +503,71 @@ class GravityProtocol {
         }
         throw err;
       }
+    };
+
+    // returns bio for the given group, or public.json if groupID === 'public'
+    this.getBio = async (groupID) => {
+      await this.ipfsReady();
+
+      let res;
+      try {
+        if (groupID === 'public') {
+          res = await readFile(node, '/bio/public.json')
+            .then(bio => JSON.parse(bio.toString()));
+        } else {
+          const groupKey = await getGroupKey(groupID).catch(() => {
+            // here so we don't mistake an issue with the given groupID
+            //  for the file just not existing yet
+            throw new Error('[getBio] something is wrong with the groupID');
+          });
+          const salt = await readFile(node, '/bio/salt');
+          const filename = hashfunc(uintConcat(salt, groupKey));
+          res = await readFile(node, `/bio/${filename}.json.enc`)
+            .then(async bio => JSON.parse(await this.decrypt(groupKey, bio)));
+        }
+      } catch (err) {
+        if (err.message.includes('exist')) {
+          console.log("got this error in getBio but we're handling it:");
+          console.log(err);
+          return {};
+        }
+        throw err;
+      }
+
+      return res;
+    };
+
+    // overrides matching fields of bio for the given group, or public.json if groupID === 'public'
+    this.setBio = async (groupID, newBio) => {
+      await this.sodiumReady();
+      await this.ipfsReady();
+
+      const bio = await this.getBio(groupID);
+      Object.assign(bio, newBio);
+
+      let salt;
+      try {
+        salt = await readFile(node, '/bio/salt');
+      } catch (err) {
+        if (err.message.includes('exist')) {
+          console.log('got this error in setBio so making new salt');
+          console.log(err);
+          salt = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+          await writeFile(node, '/bio/salt', salt);
+        } else {
+          throw err;
+        }
+      }
+
+      let data = JSON.stringify(bio);
+      let filename = 'public.json';
+      if (groupID !== 'public') {
+        const groupKey = await getGroupKey(groupID);
+        data = await this.encrypt(groupKey, data);
+        filename = `${hashfunc(uintConcat(salt, groupKey))}.json.enc`;
+      }
+
+      return writeFile(node, `/bio/${filename}`, data);
     };
   }
 }
