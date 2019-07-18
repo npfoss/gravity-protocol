@@ -70,28 +70,6 @@ const writeFile = (ipfs, path, data) => // eslint-disable-next-line implicit-arr
 // generates multihash and returns base 58 string
 const hashfunc = message => multihashing.multihash.toB58String(multihashing(message, 'sha2-256'));
 
-// use standard format for public keys
-/* supports:
-    * IPFS protobuf-encoded 2048 bit RSA key --> pkcs8 pem
-*/
-const toStandardPublicKeyFormat = (publicKey) => {
-  if (publicKey.length === 400) {
-    // probably an IPFS protobuf-encoded 2048 bit RSA key
-
-    const buf = Buffer.from(publicKey, 'base64');
-    // eslint-disable-next-line no-underscore-dangle
-    const tempPub = libp2pcrypto.keys.unmarshalPublicKey(buf)._key;
-
-    const key = new NodeRSA();
-    key.importKey({
-      n: Buffer.from(tempPub.n, 'base64'),
-      e: Buffer.from(tempPub.e, 'base64'),
-    }, 'components-public');
-
-    return key.exportKey('pkcs8-public-pem');
-  }
-  throw new Error('Unrecognized public key type');
-};
 // encrypt things with public keys
 // returns ciphertext as buffer
 // supports: RSA,
@@ -166,6 +144,39 @@ class GravityProtocol {
     });
 
 
+    // use standard format for public keys
+    /* supports:
+        * pkcs8 pem encoded key (standard for RSA) --> pkcs8 pem
+        * IPFS protobuf-encoded 2048 bit RSA key --> pkcs8 pem
+    */
+    this.toStandardPublicKeyFormat = (publicKey) => {
+      // already correctly formatted pkcs8-pem RSA key
+      try {
+        const key = new NodeRSA(publicKey, 'pkcs8-public-pem');
+        return key.exportKey('pkcs8-public-pem');
+      } catch (err) {
+        // console.log('not a pem')
+      }
+      // ipfs protobuf-encoded RSA public key
+      try {
+        const buf = Buffer.from(publicKey, 'base64');
+        // eslint-disable-next-line no-underscore-dangle
+        const tempPub = libp2pcrypto.keys.unmarshalPublicKey(buf)._key;
+
+        const key = new NodeRSA();
+        key.importKey({
+          n: Buffer.from(tempPub.n, 'base64'),
+          e: Buffer.from(tempPub.e, 'base64'),
+        }, 'components-public');
+
+        return key.exportKey('pkcs8-public-pem');
+      } catch (err) {
+        // console.log('not IPFS protobuf RSA')
+      }
+
+      throw new Error('Unrecognized public key type');
+    };
+
     this.getNodeInfo = async () => {
       await this.ipfsReady();
       return node.id();
@@ -174,7 +185,7 @@ class GravityProtocol {
     // returns this instance's public key
     this.getPublicKey = async () => {
       const info = await this.getNodeInfo();
-      return toStandardPublicKeyFormat(info.publicKey);
+      return this.toStandardPublicKeyFormat(info.publicKey);
     };
 
     this.loadDirs = async (path) => {
@@ -264,7 +275,7 @@ class GravityProtocol {
        *  because if we were to use the short IPFS ones (Qm...8g) it would change every time their
        *  protobuf format changed (i.e. they add support for another key type)
        */
-      const publicKey = toStandardPublicKeyFormat(publicKey_);
+      const publicKey = this.toStandardPublicKeyFormat(publicKey_);
 
       const contacts = await this.getContacts();
       let mySecret;
