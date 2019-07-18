@@ -121,11 +121,13 @@ const returnSuccessful = (promises) => {
 
 // UUID generator, taken from
 //  https://stackoverflow.com/questions/105034/create-guid-uuid-in-javascript/2117523#2117523
+/* eslint-disable */
 function uuidv4() {
   return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
     (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
   )
 }
+/* eslint-enable */
 
 
 //*  the protocol
@@ -468,7 +470,7 @@ class GravityProtocol {
       promises.push(writeFile(node, `${groupdir}/me`, ciphertext));
 
       // generate and add a UUID if an ID wasn't provided
-      let groupInfo = {};
+      const groupInfo = {};
       groupInfo.id = groupID || uuidv4();
       const infoEnc = await this.encrypt(groupKey, JSON.stringify(groupInfo));
       promises.push(writeFile(node, `${groupdir}/info.json.enc`, infoEnc));
