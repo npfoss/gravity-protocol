@@ -447,7 +447,7 @@ class GravityProtocol {
       });
       await this.setNicknames(nicknames, sodium.to_base64(salt));
 
-      return salt;
+      return sodium.to_base64(salt);
     };
   }
 }
