@@ -62,10 +62,9 @@ const URLtoBase64 = s => `${s.replace(/[._-]+/g, c => fromURL64replacements[c])}
 // returns promise
 const readFile = (ipfs, path) => ipfs.files.read(path);
 
-const writeFile = async (ipfs, path, data) => {
-  // TODO: might need to use locks when writing?
+// TODO: might need to use locks
+const writeFile = (ipfs, path, data) => // eslint-disable-next-line implicit-arrow-linebreak
   ipfs.files.write(path, Buffer.from(data), { parents: true, create: true, truncate: true });
-};
 
 // for convenience and clarity since this gets used a lot
 // generates multihash and returns base 58 string
@@ -331,9 +330,71 @@ class GravityProtocol {
     // returns the most recent top level hash of the profile associated with the given public key
     // ^^ well, it's supposed to. doesn't yet. TODO
     this.getProfileHash = async (publicKey) => {
-      console.log(`warning: not actually looking up the given profile: "${publicKey}"`);
+      console.warn(`warning: not actually looking up the given profile: "${publicKey}"`);
       // replace this with whatever hardcoded hash you're testing
       return 'QmRMtCEBe3t6nFfr4Ne9pqmQo4eVweuh9hv8NSoA59579m';
+    };
+
+
+    // returns the group key for the given group
+    // no 'this' because I'm trying to avoid exposing keys
+    const getGroupKey = async (groupSalt) => {
+      await this.sodiumReady();
+
+      const masterKey = await this.getMasterKey();
+      const groupKeyBuf = await this.decrypt(masterKey, await readFile(node, `/groups/${groupSalt}/me`));
+      return sodium.from_base64(JSON.parse(groupKeyBuf.toString())[0]);
+    };
+
+    // returns the info JSON for the given group
+    this.getGroupInfo = async (groupSalt) => {
+      const groupKey = await getGroupKey(groupSalt);
+      let enc;
+      try {
+        enc = await readFile(node, `/groups/${groupSalt}/info.json.enc`);
+      } catch (err) {
+        console.log('Got this error in getGroupInfo but it probably just means there was no group info:');
+        console.log(err);
+        return {};
+      }
+      return this.decrypt(groupKey, enc);
+    };
+
+    // takes an object mapping public keys to nicknames (so you can do many at once)
+    // sets the nicknames for those people in the group corresponding to groupSalt
+    this.setNicknames = async (publicKeyToName, groupSalt) => {
+      await this.ipfsReady();
+      await this.sodiumReady();
+
+      // first make sure everyone is in the group
+      const contacts = await this.getContacts();
+      const filenames = await node.files.ls(`/groups/${groupSalt}`)
+        .then(flist => flist.map(f => f.name));
+      const groupKey = await getGroupKey(groupSalt);
+
+      const myPublicKey = await this.getPublicKey();
+      const missing = Object.keys(publicKeyToName).filter((pk) => {
+        if (pk === myPublicKey) {
+          return !(filenames.includes('me'));
+        }
+        const sharedKey = sodium.from_base64(contacts[pk]['my-secret']);
+        const name = hashfunc(uintConcat(sodium.from_base64(groupSalt), sharedKey));
+        return !(filenames.includes(name));
+      });
+      if (missing.length > 0) {
+        throw new Error(`Tried to set nickname of someone not in the group: ${missing.toString()}`);
+      }
+
+      // now we can finally set the nicknames
+      const groupInfo = await this.getGroupInfo(groupSalt);
+      if (!('members' in groupInfo)) {
+        groupInfo.members = {};
+      }
+      Object.assign(groupInfo.members, publicKeyToName);
+      const enc = await this.encrypt(groupKey, JSON.stringify(groupInfo));
+      await writeFile(node, `/groups/${groupSalt}/info.json.enc`, enc);
+
+      return groupInfo;
     };
 
     // takes a list of public keys and creates a new group with those people
@@ -363,7 +424,7 @@ class GravityProtocol {
       // create folder for this group
       await node.files.mkdir(groupdir, { parents: true });
 
-      const message = `[${sodium.to_base64(groupKey)}]`;
+      const message = JSON.stringify([sodium.to_base64(groupKey)]);
 
       const promises = publicKeys.map(async (pk) => {
         const sharedKey = sodium.from_base64(contacts[pk]['my-secret']);
@@ -378,6 +439,13 @@ class GravityProtocol {
       promises.push(writeFile(node, `${groupdir}/me`, ciphertext));
 
       await Promise.all(promises);
+
+      // now set all nicknames to "" so everyone knows who's in the group
+      const nicknames = {};
+      publicKeys.concat([await this.getPublicKey()]).forEach((k) => {
+        nicknames[k] = '';
+      });
+      await this.setNicknames(nicknames, sodium.to_base64(salt));
 
       return salt;
     };
