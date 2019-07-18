@@ -365,6 +365,7 @@ class GravityProtocol {
     // no 'this' because I'm trying to avoid exposing keys
     const getGroupKey = async (groupSalt) => {
       await this.sodiumReady();
+      await this.ipfsReady();
 
       const masterKey = await this.getMasterKey();
       const groupKeyBuf = await this.decrypt(masterKey, await readFile(node, `/groups/${groupSalt}/me`));
@@ -373,6 +374,8 @@ class GravityProtocol {
 
     // returns the info JSON for the given group
     this.getGroupInfo = async (groupSalt) => {
+      await this.ipfsReady();
+      
       const groupKey = await getGroupKey(groupSalt);
       let enc;
       try {
