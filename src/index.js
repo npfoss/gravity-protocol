@@ -244,9 +244,12 @@ class GravityProtocol {
       return readFile(node, '/private/contacts.json.enc')
         .then(async contacts => JSON.parse(await this.decrypt(mkey, contacts)))
         .catch((err) => {
-          console.log("got this error but we're handling it:");
-          console.log(err);
-          return {};
+          if (err.message.includes('exist')) {
+            console.log("got this error in getContacts but we're handling it:");
+            console.log(err);
+            return {};
+          }
+          throw err;
         });
     };
 
@@ -353,9 +356,12 @@ class GravityProtocol {
       try {
         enc = await readFile(node, `/groups/${groupSalt}/info.json.enc`);
       } catch (err) {
-        console.log('Got this error in getGroupInfo but it probably just means there was no group info:');
-        console.log(err);
-        return {};
+        if (err.message.includes('exist')) {
+          console.log('Got this error in getGroupInfo but it probably just means there was no group info:');
+          console.log(err);
+          return {};
+        }
+        throw err;
       }
       return this.decrypt(groupKey, enc);
     };
@@ -376,6 +382,9 @@ class GravityProtocol {
       const missing = Object.keys(publicKeyToName).filter((pk) => {
         if (pk === myPublicKey) {
           return !(filenames.includes('me'));
+        }
+        if (!(pk in contacts)) {
+          throw new Error(`Tried to add key not even in contacts: ${pk}`);
         }
         const sharedKey = sodium.from_base64(contacts[pk]['my-secret']);
         const name = hashfunc(uintConcat(sodium.from_base64(groupSalt), sharedKey));
@@ -448,6 +457,20 @@ class GravityProtocol {
       await this.setNicknames(nicknames, sodium.to_base64(salt));
 
       return sodium.to_base64(salt);
+    };
+
+    this.getGroupList = async () => {
+      try {
+        return await node.files.ls('/groups')
+          .then(flist => flist.map(f => f.name));
+      } catch (err) {
+        if (err.message.includes('exist')) {
+          console.log('Got this error in getGroupList but it probably means the folder doesn\'t exist');
+          console.log(err);
+          return [];
+        }
+        throw err;
+      }
     };
   }
 }
