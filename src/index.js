@@ -159,6 +159,7 @@ class GravityProtocol {
         * pkcs8 pem encoded key (standard for RSA) --> pkcs8 pem
         * IPFS protobuf-encoded 2048 bit RSA key --> pkcs8 pem
     */
+    // TODO: SUPPORT ED25519! the bug was figured out: https://github.com/ipfs/js-ipfs/issues/2261
     this.toStandardPublicKeyFormat = (publicKey) => {
       // already correctly formatted pkcs8-pem RSA key
       try {
