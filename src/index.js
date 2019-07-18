@@ -62,34 +62,14 @@ const URLtoBase64 = s => `${s.replace(/[._-]+/g, c => fromURL64replacements[c])}
 // returns promise
 const readFile = (ipfs, path) => ipfs.files.read(path);
 
-const writeFile = async (ipfs, path, data) => {
-  // TODO: might need to use locks when writing?
+// TODO: might need to use locks
+const writeFile = (ipfs, path, data) => // eslint-disable-next-line implicit-arrow-linebreak
   ipfs.files.write(path, Buffer.from(data), { parents: true, create: true, truncate: true });
-};
 
-// use standard format for public keys
-/* supports:
-    * IPFS protobuf-encoded 2048 bit RSA key --> pkcs8 pem
-*/
-// TODO:::: SUPPORT ED25519! the bug was figured out: https://github.com/ipfs/js-ipfs/issues/2261
-const toStandardPublicKeyFormat = (publicKey) => {
-  if (publicKey.length === 400) {
-    // probably an IPFS protobuf-encoded 2048 bit RSA key
+// for convenience and clarity since this gets used a lot
+// generates multihash and returns base 58 string
+const hashfunc = message => multihashing.multihash.toB58String(multihashing(message, 'sha2-256'));
 
-    const buf = Buffer.from(publicKey, 'base64');
-    // eslint-disable-next-line no-underscore-dangle
-    const tempPub = libp2pcrypto.keys.unmarshalPublicKey(buf)._key;
-
-    const key = new NodeRSA();
-    key.importKey({
-      n: Buffer.from(tempPub.n, 'base64'),
-      e: Buffer.from(tempPub.e, 'base64'),
-    }, 'components-public');
-
-    return key.exportKey('pkcs8-public-pem');
-  }
-  throw new Error('Unrecognized public key type');
-};
 // encrypt things with public keys
 // returns ciphertext as buffer
 // supports: RSA,
@@ -139,6 +119,16 @@ const returnSuccessful = (promises) => {
 };
 /* eslint-enable arrow-body-style */
 
+// UUID generator, taken from
+//  https://stackoverflow.com/questions/105034/create-guid-uuid-in-javascript/2117523#2117523
+/* eslint-disable */
+function uuidv4() {
+  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+  )
+}
+/* eslint-enable */
+
 
 //*  the protocol
 class GravityProtocol {
@@ -160,8 +150,54 @@ class GravityProtocol {
 
       ipfsReadyFlag = true;
 
-      // node.files.rm('/private', { recursive: true });
+      // node.files.rm('/groups', { recursive: true }).catch(() => {});
     });
+
+
+    // use standard format for public keys
+    /* supports:
+        * pkcs8 pem encoded key (standard for RSA) --> pkcs8 pem
+        * IPFS protobuf-encoded 2048 bit RSA key --> pkcs8 pem
+    */
+    // TODO: SUPPORT ED25519! the bug was figured out: https://github.com/ipfs/js-ipfs/issues/2261
+    this.toStandardPublicKeyFormat = (publicKey) => {
+      // already correctly formatted pkcs8-pem RSA key
+      try {
+        const key = new NodeRSA(publicKey, 'pkcs8-public-pem');
+        return key.exportKey('pkcs8-public-pem');
+      } catch (err) {
+        // console.log('not a pem')
+      }
+      // ipfs protobuf-encoded RSA public key
+      try {
+        const buf = Buffer.from(publicKey, 'base64');
+        // eslint-disable-next-line no-underscore-dangle
+        const tempPub = libp2pcrypto.keys.unmarshalPublicKey(buf)._key;
+
+        const key = new NodeRSA();
+        key.importKey({
+          n: Buffer.from(tempPub.n, 'base64'),
+          e: Buffer.from(tempPub.e, 'base64'),
+        }, 'components-public');
+
+        return key.exportKey('pkcs8-public-pem');
+      } catch (err) {
+        // console.log('not IPFS protobuf RSA')
+      }
+
+      throw new Error('Unrecognized public key type');
+    };
+
+    this.getNodeInfo = async () => {
+      await this.ipfsReady();
+      return node.id();
+    };
+
+    // returns this instance's public key
+    this.getPublicKey = async () => {
+      const info = await this.getNodeInfo();
+      return this.toStandardPublicKeyFormat(info.publicKey);
+    };
 
     this.loadDirs = async (path) => {
       await this.ipfsReady();
@@ -216,11 +252,6 @@ class GravityProtocol {
       return sodium.to_string(m);
     };
 
-    this.getNodeInfo = async () => {
-      await this.ipfsReady();
-      return node.id();
-    };
-
     // returns the top level profile hash, the one that should be publicized in the DHT
     this.getMyProfileHash = async () => {
       await this.ipfsReady();
@@ -235,9 +266,12 @@ class GravityProtocol {
       return readFile(node, '/private/contacts.json.enc')
         .then(async contacts => JSON.parse(await this.decrypt(mkey, contacts)))
         .catch((err) => {
-          console.log("got this error but we're handling it:");
-          console.log(err);
-          return {};
+          if (err.message.includes('exist')) {
+            console.log("got this error in getContacts but we're handling it:");
+            console.log(err);
+            return {};
+          }
+          throw err;
         });
     };
 
@@ -252,7 +286,7 @@ class GravityProtocol {
        *  because if we were to use the short IPFS ones (Qm...8g) it would change every time their
        *  protobuf format changed (i.e. they add support for another key type)
        */
-      const publicKey = toStandardPublicKeyFormat(publicKey_);
+      const publicKey = this.toStandardPublicKeyFormat(publicKey_);
 
       const contacts = await this.getContacts();
       let mySecret;
@@ -277,7 +311,7 @@ class GravityProtocol {
 
       const message = `Hello ${publicKey} : ${sodium.to_base64(mySecret)}`;
       const ciphertext = await encAsymm(publicKey, message);
-      const hash = multihashing.multihash.toB58String(multihashing(message, 'sha2-256'));
+      const hash = hashfunc(message);
 
       // just write it regardless;
       //  if it's already there we'll have used the same secret and same name anyways
@@ -321,9 +355,154 @@ class GravityProtocol {
     // returns the most recent top level hash of the profile associated with the given public key
     // ^^ well, it's supposed to. doesn't yet. TODO
     this.getProfileHash = async (publicKey) => {
-      console.log(`warning: not actually looking up the given profile: "${publicKey}"`);
+      console.warn(`warning: not actually looking up the given profile: "${publicKey}"`);
       // replace this with whatever hardcoded hash you're testing
       return 'QmRMtCEBe3t6nFfr4Ne9pqmQo4eVweuh9hv8NSoA59579m';
+    };
+
+
+    // returns the group key for the given group
+    // no 'this' because I'm trying to avoid exposing keys
+    const getGroupKey = async (groupSalt) => {
+      await this.sodiumReady();
+      await this.ipfsReady();
+
+      const masterKey = await this.getMasterKey();
+      const groupKeyBuf = await this.decrypt(masterKey, await readFile(node, `/groups/${groupSalt}/me`));
+      return sodium.from_base64(JSON.parse(groupKeyBuf.toString())[0]);
+    };
+
+    // returns the info JSON for the given group
+    this.getGroupInfo = async (groupSalt) => {
+      await this.ipfsReady();
+      
+      const groupKey = await getGroupKey(groupSalt);
+      let enc;
+      try {
+        enc = await readFile(node, `/groups/${groupSalt}/info.json.enc`);
+      } catch (err) {
+        if (err.message.includes('exist')) {
+          console.log('Got this error in getGroupInfo but it probably just means there was no group info:');
+          console.log(err);
+          return {};
+        }
+        throw err;
+      }
+      return JSON.parse(await this.decrypt(groupKey, enc));
+    };
+
+    // takes an object mapping public keys to nicknames (so you can do many at once)
+    // sets the nicknames for those people in the group corresponding to groupSalt
+    this.setNicknames = async (publicKeyToName, groupSalt) => {
+      await this.ipfsReady();
+      await this.sodiumReady();
+
+      // first make sure everyone is in the group
+      const contacts = await this.getContacts();
+      const filenames = await node.files.ls(`/groups/${groupSalt}`)
+        .then(flist => flist.map(f => f.name));
+      const groupKey = await getGroupKey(groupSalt);
+
+      const myPublicKey = await this.getPublicKey();
+      const missing = Object.keys(publicKeyToName).filter((pk) => {
+        if (pk === myPublicKey) {
+          return !(filenames.includes('me'));
+        }
+        if (!(pk in contacts)) {
+          throw new Error(`Tried to add key that's not in contacts: ${pk}`);
+        }
+        const sharedKey = sodium.from_base64(contacts[pk]['my-secret']);
+        const name = hashfunc(uintConcat(sodium.from_base64(groupSalt), sharedKey));
+        return !(filenames.includes(name));
+      });
+      if (missing.length > 0) {
+        throw new Error(`Tried to set nickname of someone not in the group: ${missing.toString()}`);
+      }
+
+      // now we can finally set the nicknames
+      const groupInfo = await this.getGroupInfo(groupSalt);
+      if (groupInfo.members === undefined) {
+        groupInfo.members = {};
+      }
+      Object.assign(groupInfo.members, publicKeyToName);
+      const enc = await this.encrypt(groupKey, JSON.stringify(groupInfo));
+      await writeFile(node, `/groups/${groupSalt}/info.json.enc`, enc);
+
+      return groupInfo;
+    };
+
+    // takes a list of public keys and creates a new group with those people
+    //       // does not fill in any optional details, that's left to other functions
+    //       //  --> i.e. default group is anonymous, recipients don't know the other recipients
+    // actually, I changed my mind about that^ for now
+    //  because it's convenient to automatically generate the member list
+    // if a given public key is not already in this node's contacts, an error is thrown
+    //  --> because this function doesn't know the context for that public key,
+    //      and it's important to categorize people (into friends, family, etc) as they come in.
+    // returns group name/salt (same thing)
+    // groupID is optional. useful if you're trying to semantically link this group to a friend's
+    this.createGroup = async (publicKeys, /* optional */ groupID) => {
+      await this.sodiumReady();
+      await this.ipfsReady();
+
+      const contacts = await this.getContacts();
+
+      const missing = publicKeys.filter(k => !(k in contacts));
+      if (missing.length > 0) {
+        throw new Error(`Add the following public keys to your contacts first! ${missing}`);
+      }
+
+      const salt = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+      const groupKey = sodium.crypto_secretbox_keygen();
+      const groupdir = `/groups/${sodium.to_base64(salt)}`;
+
+      // create folder for this group
+      await node.files.mkdir(groupdir, { parents: true });
+
+      const message = JSON.stringify([sodium.to_base64(groupKey)]);
+
+      const promises = publicKeys.map(async (pk) => {
+        const sharedKey = sodium.from_base64(contacts[pk]['my-secret']);
+        const name = hashfunc(uintConcat(salt, sharedKey));
+        const ciphertext = await this.encrypt(sharedKey, message);
+        return writeFile(node, `${groupdir}/${name}`, ciphertext);
+      });
+
+      // also add myself to the group
+      const sharedKey = await this.getMasterKey();
+      const ciphertext = await this.encrypt(sharedKey, message);
+      promises.push(writeFile(node, `${groupdir}/me`, ciphertext));
+
+      // generate and add a UUID if an ID wasn't provided
+      const groupInfo = {};
+      groupInfo.id = groupID || uuidv4();
+      const infoEnc = await this.encrypt(groupKey, JSON.stringify(groupInfo));
+      promises.push(writeFile(node, `${groupdir}/info.json.enc`, infoEnc));
+
+      await Promise.all(promises);
+
+      // now set all nicknames to "" so everyone knows who's in the group
+      const nicknames = {};
+      publicKeys.concat([await this.getPublicKey()]).forEach((k) => {
+        nicknames[k] = '';
+      });
+      await this.setNicknames(nicknames, sodium.to_base64(salt));
+
+      return sodium.to_base64(salt);
+    };
+
+    this.getGroupList = async () => {
+      try {
+        return await node.files.ls('/groups')
+          .then(flist => flist.map(f => f.name));
+      } catch (err) {
+        if (err.message.includes('exist')) {
+          console.log('Got this error in getGroupList but it probably means the folder doesn\'t exist');
+          console.log(err);
+          return [];
+        }
+        throw err;
+      }
     };
   }
 }
