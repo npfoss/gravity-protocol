@@ -374,7 +374,7 @@ class GravityProtocol {
         }
         throw err;
       }
-      return this.decrypt(groupKey, enc);
+      return JSON.parse(await this.decrypt(groupKey, enc));
     };
 
     // takes an object mapping public keys to nicknames (so you can do many at once)
@@ -395,7 +395,7 @@ class GravityProtocol {
           return !(filenames.includes('me'));
         }
         if (!(pk in contacts)) {
-          throw new Error(`Tried to add key not even in contacts: ${pk}`);
+          throw new Error(`Tried to add key that's not in contacts: ${pk}`);
         }
         const sharedKey = sodium.from_base64(contacts[pk]['my-secret']);
         const name = hashfunc(uintConcat(sodium.from_base64(groupSalt), sharedKey));
@@ -407,7 +407,7 @@ class GravityProtocol {
 
       // now we can finally set the nicknames
       const groupInfo = await this.getGroupInfo(groupSalt);
-      if (!('members' in groupInfo)) {
+      if (groupInfo.members === undefined) {
         groupInfo.members = {};
       }
       Object.assign(groupInfo.members, publicKeyToName);
