@@ -504,6 +504,38 @@ class GravityProtocol {
         throw err;
       }
     };
+
+    // returns bio for the given group, or public.json if groupID === 'public'
+    this.getBio = async (groupID) => {
+      await this.ipfsReady();
+
+      let res;
+      try{
+        if (groupID === 'public') {
+          res = await readFile(node, '/bio/public.json')
+            .then(contacts => JSON.parse(contacts))
+        } else {
+          const groupKey = await getGroupKey(groupID).catch((err) => {
+            // here so we don't mistake an issue with the given groupID
+            //  for the file just not existing yet
+            throw new Error('[getBio] something is wrong with the groupID');
+          })
+          const salt = await readFile(node, '/bio/salt');
+          const filename = hashfunc(uintConcat(salt, groupKey));
+          res = await readFile(node, `/bio/${filename}.json.enc`)
+            .then(async bio => JSON.parse(await this.decrypt(groupKey, bio)))
+        }
+      } catch (err) {
+        if (err.message.includes('exist')) {
+          console.log("got this error in getContacts but we're handling it:");
+          console.log(err);
+          return {};
+        }
+        throw err;
+      };
+
+      return res;
+    }
   }
 }
 
