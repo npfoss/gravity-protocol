@@ -355,13 +355,13 @@ class GravityProtocol {
     // returns the most recent top level hash of the profile associated with the given public key
     // ^^ well, it's supposed to. doesn't yet. TODO
     this.lookupProfileHash = async (publicKey) => {
-      console.warn('not actually looking anything up');
+      console.warn(`not actually looking anything up for ${publicKey}`);
       return 'QmRMtCEBe3t6nFfr4Ne9pqmQo4eVweuh9hv8NSoA59579m';
       // still unfinished. actually expects `publicKey` to be the node ID
-      console.log(`looking up: /ipns/${publicKey}`);
-      return node.name.resolve(`/ipns/${publicKey}`, {
-        nocache: false,
-      });
+      // console.log(`looking up: /ipns/${publicKey}`);
+      // return node.name.resolve(`/ipns/${publicKey}`, {
+      //   nocache: false,
+      // });
     };
 
     // returns the group key for the given group
