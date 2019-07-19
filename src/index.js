@@ -354,7 +354,9 @@ class GravityProtocol {
     // TODO: should query IPNS (DHT). hardcoded for now to unblock other stuff
     // returns the most recent top level hash of the profile associated with the given public key
     // ^^ well, it's supposed to. doesn't yet. TODO
-    this.lookupProfileHash = (publicKey) => {
+    this.lookupProfileHash = async (publicKey) => {
+      console.warn('not actually looking anything up');
+      return 'QmRMtCEBe3t6nFfr4Ne9pqmQo4eVweuh9hv8NSoA59579m';
       // still unfinished. actually expects `publicKey` to be the node ID
       console.log(`looking up: /ipns/${publicKey}`);
       return node.name.resolve(`/ipns/${publicKey}`, {
