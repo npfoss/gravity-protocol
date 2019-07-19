@@ -354,12 +354,13 @@ class GravityProtocol {
     // TODO: should query IPNS (DHT). hardcoded for now to unblock other stuff
     // returns the most recent top level hash of the profile associated with the given public key
     // ^^ well, it's supposed to. doesn't yet. TODO
-    this.getProfileHash = async (publicKey) => {
-      console.warn(`warning: not actually looking up the given profile: "${publicKey}"`);
-      // replace this with whatever hardcoded hash you're testing
-      return 'QmRMtCEBe3t6nFfr4Ne9pqmQo4eVweuh9hv8NSoA59579m';
+    this.lookupProfileHash = (publicKey) => {
+      // still unfinished. actually expects `publicKey` to be the node ID
+      console.log(`looking up: /ipns/${publicKey}`);
+      return node.name.resolve(`/ipns/${publicKey}`, {
+        nocache: false,
+      });
     };
-
 
     // returns the group key for the given group
     // no 'this' because I'm trying to make it harder to accidentally mishandle keys
@@ -569,6 +570,19 @@ class GravityProtocol {
 
       return writeFile(node, `/bio/${filename}`, data);
     };
+
+    this.publishProfile = async () => {
+      const hash = await this.getMyProfileHash();
+
+      return node.name.publish(`/ipfs/${hash}`, {
+        lifetime: '300s', // string - Time duration of the record. Default: 24h
+        // ttl:   ,   // string - Time duration this record should be cached
+      });
+    };
+
+    this.connectToAddr = address => node.swarm.connect(address);
+
+    this.getIpfsPeers = () => node.swarm.peers();
   }
 }
 
