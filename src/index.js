@@ -171,7 +171,7 @@ class GravityProtocol {
         const key = new NodeRSA(publicKey, 'pkcs8-public-pem');
         return key.exportKey('pkcs8-public-pem');
       } catch (err) {
-        // console.log('not a pem')
+        // console.log('not an RSA pem')
       }
       // ipfs protobuf-encoded RSA public key
       try {
