@@ -2,7 +2,6 @@
 const IPFS = require('ipfs');
 const Cookies = require('js-cookie');
 const sodium = require('libsodium-wrappers');
-const multihashing = require('multihashing');
 const libp2pcrypto = require('libp2p-crypto');
 const NodeRSA = require('node-rsa');
 
@@ -68,15 +67,13 @@ const writeFile = (ipfs, path, data) => // eslint-disable-next-line implicit-arr
 
 // for convenience and clarity since this gets used a lot
 // returns base64 string
-/* TODO
-don't actually use sha256 hash, just last 78 bits (13 chars in base64).
+/*
 based on this calculation:
-sqrt[2*2^(78)*10^(-12)] = 777k
-with 78 bits you can have 777k groups in your profile
+sqrt[2*2^(80)*10^(-12)] = 1.5 million
+with 80 bits (14 chars in base64) you can have about 1.5 mil groups/subscribers in your profile
   without the probability of collision exceeding one in a trillion
 */
-// possibly useful: sodium.crypto_generichash
-const hashfunc = message => multihashing.multihash.toB58String(multihashing(message, 'sha2-256'));
+const hashfunc = message => sodium.to_base64(sodium.crypto_generichash(10, Buffer.from(message)));
 
 // encrypt things with public keys
 // returns ciphertext as buffer

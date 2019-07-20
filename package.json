@@ -24,7 +24,6 @@
     "js-cookie": "^2.2.0",
     "libp2p-crypto": "^0.17.0",
     "libsodium-wrappers": "^0.7.4",
-    "multihashing": "^0.3.3",
     "node-rsa": "^1.0.5"
   },
   "devDependencies": {
