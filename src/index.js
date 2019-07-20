@@ -67,7 +67,13 @@ const writeFile = (ipfs, path, data) => // eslint-disable-next-line implicit-arr
   ipfs.files.write(path, Buffer.from(data), { parents: true, create: true, truncate: true });
 
 // for convenience and clarity since this gets used a lot
-// generates multihash and returns base 58 string
+// returns base64 string
+/* TODO
+don't actually use sha256 hash, just last 78 bits (13 chars in base64).
+based on this calculation:
+sqrt[2*2^(78)*10^(-12)] = 777k
+with 78 bits you can have 777k groups in your profile without the probability of collision exceeding one in a trillion
+*/
 const hashfunc = message => multihashing.multihash.toB58String(multihashing(message, 'sha2-256'));
 
 // encrypt things with public keys
