@@ -72,8 +72,10 @@ const writeFile = (ipfs, path, data) => // eslint-disable-next-line implicit-arr
 don't actually use sha256 hash, just last 78 bits (13 chars in base64).
 based on this calculation:
 sqrt[2*2^(78)*10^(-12)] = 777k
-with 78 bits you can have 777k groups in your profile without the probability of collision exceeding one in a trillion
+with 78 bits you can have 777k groups in your profile
+  without the probability of collision exceeding one in a trillion
 */
+// possibly useful: sodium.crypto_generichash
 const hashfunc = message => multihashing.multihash.toB58String(multihashing(message, 'sha2-256'));
 
 // encrypt things with public keys
@@ -156,7 +158,7 @@ class GravityProtocol {
 
       ipfsReadyFlag = true;
 
-      // node.files.rm('/groups', { recursive: true }).catch(() => {});
+      // node.files.rm('/posts', { recursive: true }).catch(() => {});
     });
 
 
@@ -364,6 +366,7 @@ class GravityProtocol {
       console.warn(`not actually looking anything up for ${publicKey}`);
       return 'QmRMtCEBe3t6nFfr4Ne9pqmQo4eVweuh9hv8NSoA59579m';
       // still unfinished. actually expects `publicKey` to be the node ID
+      // await this.ipfsReady();
       // console.log(`looking up: /ipns/${publicKey}`);
       // return node.name.resolve(`/ipns/${publicKey}`, {
       //   nocache: false,
@@ -580,6 +583,8 @@ class GravityProtocol {
     };
 
     this.publishProfile = async () => {
+      await this.ipfsReady();
+
       const hash = await this.getMyProfileHash();
 
       return node.name.publish(`/ipfs/${hash}`, {
@@ -588,9 +593,126 @@ class GravityProtocol {
       });
     };
 
-    this.connectToAddr = address => node.swarm.connect(address);
+    this.connectToAddr = async (address) => {
+      await this.ipfsReady();
 
-    this.getIpfsPeers = () => node.swarm.peers();
+      return node.swarm.connect(address);
+    };
+
+    this.getIpfsPeers = async () => {
+      await this.ipfsReady();
+
+      node.swarm.peers();
+    };
+
+    // this function creates the correct folders and sets up all the metadata for a post
+    // it DOES NOT write the post data itself (`content.[whatever]`)
+    //    because that's going to be different for different posts (regular, react, etc)
+    // that part^ must be done OUTSIDE this function
+    // this function returns the path to put the post content at
+    // this function also does not push the update to IPNS,
+    //    that responsibilty lies with the caller as well
+    this.setupPostMetadata = async (groupSalt, /* optional  */ parents, tags) => {
+      await this.sodiumReady();
+      await this.ipfsReady();
+
+      const promisesToWaitFor = [];
+
+      // validate inputs
+      // tags should be list of strings
+      if (tags !== undefined && tags.some(t => typeof t !== 'string')) {
+        throw new Error('tags passed to setupPostMetadata must be strings');
+      }
+      /* TODO: validate parent paths
+          - bare minimum is valid ipfs or ipns path (starting with the '/ip[fn]s/')
+          - ideally the path to a post in some profile--
+              should be of the form: /ipns/id-of-author/posts/year/month/day/group-secret-salt-hash
+      */
+
+      let groupKey;
+      try {
+        groupKey = await getGroupKey(groupSalt);
+      } catch (err) {
+        throw new Error(`Got the following error while getting group key for post: ${err}`);
+      }
+
+      // TODO: figure out a better way to timestamp. this can be totally off
+      /* ideas:
+          - ping an external server
+          - reconcile with timestamps of recent posts
+          - use a network-wide vector clock (not actually crazy maybe?)
+      */
+      const date = new Date();
+
+      // generate directory if not already there
+      const path = `/posts/${date.getUTCFullYear()}/${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
+      // month + 1 because it's zero-indexed, but the date is one-indexed
+      await node.files.mkdir(path, { parents: true });
+      let salt;
+      try {
+        salt = await readFile(node, `${path}/salt`);
+      } catch (err) {
+        if (err.message.includes('exist')) {
+          console.log("got this error in setupPostMetadata but it probably just means there's no salt yet");
+          console.log(err);
+          salt = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+          promisesToWaitFor.push(writeFile(node, `${path}/salt`, salt));
+        } else {
+          throw err;
+        }
+      }
+      // TODO: shorten postdirname. only has to be unique, not secure
+      //  so look at what's already there and increment by random value or something
+      /* possibly useful but may have to update libsodium:
+        console.log(sodium.sodium_bin2base64(271))
+      */
+      // note: unlike hashfunc, can change this later and it doesn't matter
+      const postdirname = sodium.to_base64(sodium.randombytes_buf(9));
+
+      const postdir = `${path}/${hashfunc(uintConcat(salt, groupKey))}/${postdirname}`;
+      const mkdirPromise = node.files.mkdir(postdir, { parents: true });
+
+      // write the data
+      const meta = {
+        // timeStamp
+        s: date.getTime(), // milliseconds since Jan 1, 1970
+        // TODO: this can be shortened by base64 encoding the int, value unclear
+      };
+      if (parents) {
+        // Parents
+        meta.p = parents;
+      }
+      if (tags) {
+        // taGs
+        meta.g = tags;
+      }
+      // ^short names becuase there are going to be a lot of these and every byte counts...
+
+      const metaEnc = await this.encrypt(groupKey, JSON.stringify(meta));
+      await mkdirPromise;
+      promisesToWaitFor.push(writeFile(node, `${postdir}/meta.json.enc`, metaEnc));
+
+      await Promise.all(promisesToWaitFor);
+      return postdir;
+    };
+
+    // for posting plaintext
+    // returns path to post
+    this.postTxt = async (groupSalt, text, /* optional */ parents, tags) => {
+      await this.ipfsReady();
+
+      // validate. setupPostMetadata checks the rest
+      if (typeof text !== 'string') {
+        throw new Error('postTxt requires content to be string');
+      }
+
+      const path = this.setupPostMetadata(groupSalt, parents, tags);
+
+      const groupKey = await getGroupKey(groupSalt);
+      const contentEnc = await this.encrypt(groupKey, text);
+      await writeFile(node, `${await path}/content.txt.enc`, contentEnc);
+      return path;
+    };
   }
 }
 
