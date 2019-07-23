@@ -625,6 +625,9 @@ class GravityProtocol {
           - ideally the path to a post in some profile--
               should be of the form: /ipns/id-of-author/posts/year/month/day/group-secret-salt-hash
       */
+      if (parents !== undefined && parents.some(t => typeof t !== 'string')) {
+        throw new Error('parents passed to setupPostMetadata must be strings');
+      }
 
       let groupKey;
       try {
