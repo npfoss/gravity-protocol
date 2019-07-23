@@ -707,7 +707,7 @@ class GravityProtocol {
 
       const groupKey = await getGroupKey(groupSalt);
       const contentEnc = await this.encrypt(groupKey, text);
-      await writeFile(node, `${await path}/content.txt.enc`, contentEnc);
+      await writeFile(node, `${await path}/main.txt.enc`, contentEnc);
       return path;
     };
   }
