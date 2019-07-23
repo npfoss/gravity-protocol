@@ -4,6 +4,10 @@ const Cookies = require('js-cookie');
 const sodium = require('libsodium-wrappers');
 const libp2pcrypto = require('libp2p-crypto');
 const NodeRSA = require('node-rsa');
+// TODO: this but for libp2pcrypto (called "crypto")
+const { CID } = require('ipfs')
+// ...or from an es-module:
+import { CID } from 'ipfs'
 
 
 //*  UTILS
