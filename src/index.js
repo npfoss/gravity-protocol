@@ -714,6 +714,9 @@ class GravityProtocol {
       return path;
     };
 
+    // for posting reacts
+    // decided reacts are best posted by hash since they'll get lots of re-use
+    // returns path to post
     this.postReact = async (groupSalt, link, parents) => {
       await this.ipfsReady();
 
@@ -721,16 +724,72 @@ class GravityProtocol {
       if (typeof link !== 'string') {
         throw new Error('postReact requires link to be string');
       }
+      if (!parents || parents.some(p => typeof p !== 'string')){
+        throw new Error('postReact parents malformed. you must be reacting to something');
+      }
 
       const path = this.setupPostMetadata(groupSalt, parents);
 
       const groupKey = await getGroupKey(groupSalt);
-      const contentEnc = await this.encrypt(groupKey, link);
+      const contentEnc = this.encrypt(groupKey, link);
       // note: .lenc is a new file type, for encrypted ipfs links
       //  use sparingly, because it won't be pinned with the profile
-      await writeFile(node, `${await path}/main.lenc`, contentEnc);
+      await writeFile(node, `${await path}/main.lenc`, await contentEnc);
       return path;
     };
+
+    // label is how people will refer to it (e.g. :facepalm-7:)
+    // image can either be an ipfs link to an existing image or a buffer with the image data itself
+    // if image is the image data itself, an extension is required to identify it, e.g. gif, jpg
+    // returns ready-to-use ipfs link to that react
+    this.createNewReact = async (groupSalt, label_, image, extension_) => {
+      await this.ipfsReady();
+      await this.sodiumReady();
+
+      // make sure there aren't illegal characters
+      const label = label_.replace(/[:\s/]+/g, '');
+      if (label !== label_) {
+        console.warn('Filtered out illegal label chars in createNewReact');
+      }
+
+      const groupKey = getGroupKey(groupSalt);
+      // used twice, for different non-cryptographic things so it's ok
+      const randomString = sodium.to_base64(sodium.randombytes_buf(10));
+
+      let imagePath;
+      if (typeof image === 'string' /* TODO: validate better */) {
+        imagePath = image;
+      } else {
+        // TODO: validate image type. not sure what that's going to be yet. probably buffer
+
+        const extension = extension_.replace(/\.+/g, '');
+        const validImageExtensions = ['jpeg', 'jpg', 'png', 'gif'];
+        if (!extension) {
+          throw new Error('createNewReact with image data needs to know the extension');
+        } else if (!(validImageExtensions.includes(extension))) {
+          throw new Error('invalid image extension for createNewReact')
+        }
+        // need to encrypt and write the image
+        // TODO: maybe use the streams here? these are not small objects
+        imageName = `${sodium.to_base64(sodium.randombytes_buf(10))}.${extension}.enc`;
+        const imageEnc = this.encrypt(groupKey, image);
+        await writeFile(node, `/groups/${groupSalt}/reacts/${imageName}`, await imageEnc);
+        // ^ doesn't return anything. need to look up file for hash
+        const hash = await node.files.stat(`/groups/${groupSalt}/reacts/${imageName}`, { hash: true });
+        imagePath = `/ipfs/${hash}`
+      }
+
+      // now need to write the .react file
+      const data = {
+        label: label,
+        image: imagePath,
+      }
+      const dataEnc = this.encrypt(groupKey, JSON.stringify(data));
+      const path = `/groups/${groupSalt}/reacts/${randomString}.react.enc`;
+      await writeFile(node, path, await dataEnc);
+      const hash = await node.files.stat(path, { hash: true });
+      return `/ipfs/${hash}`;
+    }
   }
 }
 
