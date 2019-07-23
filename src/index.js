@@ -713,6 +713,24 @@ class GravityProtocol {
       await writeFile(node, `${await path}/main.txt.enc`, contentEnc);
       return path;
     };
+
+    this.postReact = async (groupSalt, link, parents) => {
+      await this.ipfsReady();
+
+      // validate. TODO: parse link and throw error if it's bad
+      if (typeof link !== 'string') {
+        throw new Error('postReact requires link to be string');
+      }
+
+      const path = this.setupPostMetadata(groupSalt, parents);
+
+      const groupKey = await getGroupKey(groupSalt);
+      const contentEnc = await this.encrypt(groupKey, link);
+      // note: .lenc is a new file type, for encrypted ipfs links
+      //  use sparingly, because it won't be pinned with the profile
+      await writeFile(node, `${await path}/main.lenc`, contentEnc);
+      return path;
+    };
   }
 }
 
