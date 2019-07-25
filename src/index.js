@@ -4,6 +4,7 @@ const Cookies = require('js-cookie');
 const sodium = require('libsodium-wrappers');
 const libp2pcrypto = require('libp2p-crypto');
 const NodeRSA = require('node-rsa');
+const isIPFS = require('is-ipfs');
 
 
 //*  UTILS
@@ -621,12 +622,12 @@ class GravityProtocol {
         throw new Error('tags passed to setupPostMetadata must be strings');
       }
       /* TODO: validate parent paths
-          - bare minimum is valid ipfs or ipns path (starting with the '/ip[fn]s/')
-          - ideally the path to a post in some profile--
+          - [x] bare minimum is valid ipfs or ipns path (starting with the '/ip[fn]s/')
+          - [ ] ideally the path to a post in some profile--
               should be of the form: /ipns/id-of-author/posts/year/month/day/group-secret-salt-hash
       */
-      if (parents !== undefined && parents.some(t => typeof t !== 'string')) {
-        throw new Error('parents passed to setupPostMetadata must be strings');
+      if (parents !== undefined && parents.some(p => !isIPFS.path(p))) {
+        throw new Error('invalid parents passed to setupPostMetadata');
       }
 
       let groupKey;
@@ -720,12 +721,12 @@ class GravityProtocol {
     this.postReact = async (groupSalt, link, parents) => {
       await this.ipfsReady();
 
-      // validate. TODO: parse link and throw error if it's bad
-      if (typeof link !== 'string') {
-        throw new Error('postReact requires link to be string');
+      // validate
+      if (!isIPFS.ipfsPath(link)) {
+        throw new Error('postReact link must be valid IPFS path');
       }
-      if (!parents || parents.some(p => typeof p !== 'string')) {
-        throw new Error('postReact parents malformed. you must be reacting to something');
+      if (!parents) { // rest is checked in setupPostMetadata
+        throw new Error('no postReact parents; you must be reacting to something');
       }
 
       const path = this.setupPostMetadata(groupSalt, parents);
@@ -757,7 +758,7 @@ class GravityProtocol {
       const randomString = sodium.to_base64(sodium.randombytes_buf(10));
 
       let imagePath;
-      if (typeof image === 'string' /* TODO: validate better */) {
+      if (isIPFS.ipfsPath(image)) {
         imagePath = image;
       } else {
         // TODO: validate image type. not sure what that's going to be yet. probably buffer
