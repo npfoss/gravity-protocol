@@ -724,7 +724,7 @@ class GravityProtocol {
       if (typeof link !== 'string') {
         throw new Error('postReact requires link to be string');
       }
-      if (!parents || parents.some(p => typeof p !== 'string')){
+      if (!parents || parents.some(p => typeof p !== 'string')) {
         throw new Error('postReact parents malformed. you must be reacting to something');
       }
 
@@ -767,29 +767,29 @@ class GravityProtocol {
         if (!extension) {
           throw new Error('createNewReact with image data needs to know the extension');
         } else if (!(validImageExtensions.includes(extension))) {
-          throw new Error('invalid image extension for createNewReact')
+          throw new Error('invalid image extension for createNewReact');
         }
         // need to encrypt and write the image
         // TODO: maybe use the streams here? these are not small objects
-        imageName = `${sodium.to_base64(sodium.randombytes_buf(10))}.${extension}.enc`;
+        const imageName = `${sodium.to_base64(sodium.randombytes_buf(10))}.${extension}.enc`;
         const imageEnc = this.encrypt(groupKey, image);
         await writeFile(node, `/groups/${groupSalt}/reacts/${imageName}`, await imageEnc);
         // ^ doesn't return anything. need to look up file for hash
         const hash = await node.files.stat(`/groups/${groupSalt}/reacts/${imageName}`, { hash: true });
-        imagePath = `/ipfs/${hash}`
+        imagePath = `/ipfs/${hash}`;
       }
 
       // now need to write the .react file
       const data = {
-        label: label,
+        label,
         image: imagePath,
-      }
+      };
       const dataEnc = this.encrypt(groupKey, JSON.stringify(data));
       const path = `/groups/${groupSalt}/reacts/${randomString}.react.enc`;
       await writeFile(node, path, await dataEnc);
       const hash = await node.files.stat(path, { hash: true });
       return `/ipfs/${hash}`;
-    }
+    };
   }
 }
 
