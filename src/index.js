@@ -794,6 +794,7 @@ class GravityProtocol {
     };
 
     // this is what you share to get people to add you
+    // TODO: make it an actual URL-safe link
     this.getMagicLink = async () => {
       const info = await this.getNodeInfo();
       return JSON.stringify({
