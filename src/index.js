@@ -45,7 +45,7 @@ const uintConcat = (a, b) => {
 };
 
 // sleep nonblocking
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+// const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // for base64 string conversion to/from url safe strings (for pubkeys)
 // copies the format used by libsodium
@@ -138,25 +138,10 @@ function uuidv4() {
 //*  the protocol
 class GravityProtocol {
   constructor() {
-    let ipfsReadyFlag = false;
-    this.ipfsReady = async () => {
-      while (!ipfsReadyFlag) {
-        // eslint-disable-next-line no-await-in-loop
-        await sleep(400);
-      }
-      return true;
-    };
-    this.sodiumReady = async () => sodium.ready;
-
     const node = new IPFS();
-    node.on('ready', () => {
-      // Ready to use!
-      // See https://github.com/ipfs/js-ipfs#core-api
 
-      ipfsReadyFlag = true;
-
-      // node.files.rm('/posts', { recursive: true }).catch(() => {});
-    });
+    this.ipfsReady = async () => node.ready;
+    this.sodiumReady = async () => sodium.ready;
 
 
     // use standard format for public keys
@@ -818,6 +803,13 @@ class GravityProtocol {
         addresses: info.addresses,
       });
     };
+
+
+    node.on('ready', () => {
+      // for debugging and stuff. will right as soon as IPFS is ready
+
+      // node.files.rm('/posts', { recursive: true }).catch(() => {});
+    });
   }
 }
 
