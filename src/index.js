@@ -808,6 +808,16 @@ class GravityProtocol {
       const hash = await node.files.stat(path, { hash: true });
       return `/ipfs/${hash}`;
     };
+
+    // this is what you share to get people to add you
+    this.getMagicLink = async () => {
+      const info = await this.getNodeInfo();
+      return JSON.stringify({
+        publicKey: await this.toStandardPublicKeyFormat(info.publicKey),
+        id: info.id,
+        addresses: info.addresses,
+      });
+    };
   }
 }
 
