@@ -308,7 +308,6 @@ class GravityProtocol {
       promisesToWaitFor.push(writeFile(node, `/subscribers/${hash}`, ciphertext));
 
       await Promise.all(promisesToWaitFor);
-      return mySecret;
     };
 
     // given the path to the subscribers folder of someone else's profile,
@@ -802,6 +801,29 @@ class GravityProtocol {
         id: info.id,
         addresses: info.addresses,
       });
+    };
+
+    this.addViaMagicLink = async (magic) => {
+      await this.ipfsReady();
+
+      if (!('publicKey' in magic && 'id' in magic)) {
+        throw new Error('magic link missing some info');
+      }
+      const pubkey = this.toStandardPublicKeyFormat(magic.publicKey);
+      await this.addSubscriber(pubkey);
+
+      const contacts = await this.getContacts();
+
+      contacts[pubkey].id = magic.id;
+      if (contacts[pubkey].addresses) {
+        // remove duplicates
+        contacts[pubkey].addresses = [...new Set(magic.addresses + contacts[pubkey].addresses)];
+      } else {
+        contacts[pubkey].addresses = magic.addresses;
+      }
+
+      const encContacts = this.encrypt(await this.getMasterKey(), JSON.stringify(contacts));
+      await writeFile(node, '/private/contacts.json.enc', await encContacts);
     };
 
 
