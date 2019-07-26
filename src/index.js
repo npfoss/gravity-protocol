@@ -600,7 +600,7 @@ class GravityProtocol {
     this.getIpfsPeers = async () => {
       await this.ipfsReady();
 
-      node.swarm.peers();
+      return node.swarm.peers();
     };
 
     // this function creates the correct folders and sets up all the metadata for a post
