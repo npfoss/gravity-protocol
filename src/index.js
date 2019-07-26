@@ -803,8 +803,10 @@ class GravityProtocol {
       });
     };
 
-    this.addViaMagicLink = async (magic) => {
+    this.addViaMagicLink = async (magicLink) => {
       await this.ipfsReady();
+
+      const magic = JSON.parse(magicLink);
 
       if (!('publicKey' in magic && 'id' in magic)) {
         throw new Error('magic link missing some info');
