@@ -829,12 +829,23 @@ class GravityProtocol {
       await writeFile(node, '/private/contacts.json.enc', await encContacts);
     };
 
+    // try connecting to all your friends
+    this.autoconnectPeers = async () => {
+      await this.ipfsReady();
 
-    node.on('ready', () => {
-      // for debugging and stuff. will right as soon as IPFS is ready
+      const contacts = await this.getContacts();
+      console.log('Attempting to connect to many old addresses...');
+      Object.keys(contacts).forEach((key) => {
+        if (contacts[key].addresses) {
+          contacts[key].addresses.forEach((addr) => {
+            this.connectToAddr(addr)
+              .catch(err => console.log(err));
+          });
+        }
+      });
+    };
 
-      // node.files.rm('/posts', { recursive: true }).catch(() => {});
-    });
+    // node.files.rm('/posts', { recursive: true }).catch(() => {});
   }
 }
 
