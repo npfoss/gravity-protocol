@@ -370,7 +370,6 @@ class GravityProtocol {
       const publicKey = this.toStandardPublicKeyFormat(publicKey_);
 
       const contacts = await this.getContacts();
-      console.log(`looking up: /ipns/${contacts[publicKey].id}`);
       return node.name.resolve(`/ipns/${contacts[publicKey].id}`, {
         nocache: false,
       });
