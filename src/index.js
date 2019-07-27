@@ -362,18 +362,18 @@ class GravityProtocol {
     };
     */
 
-    // TODO: should query IPNS (DHT). hardcoded for now to unblock other stuff
     // returns the most recent top level hash of the profile associated with the given public key
-    // ^^ well, it's supposed to. doesn't yet. TODO
-    this.lookupProfileHash = async (publicKey) => {
-      console.warn(`not actually looking anything up for ${publicKey}`);
-      return 'QmRMtCEBe3t6nFfr4Ne9pqmQo4eVweuh9hv8NSoA59579m';
-      // still unfinished. actually expects `publicKey` to be the node ID
-      // await this.ipfsReady();
-      // console.log(`looking up: /ipns/${publicKey}`);
-      // return node.name.resolve(`/ipns/${publicKey}`, {
-      //   nocache: false,
-      // });
+    // TODO: uses only pubsub right now. limitations unknown. figure those out, augment with DHT?
+    this.lookupProfileHash = async (publicKey_) => {
+      await this.ipfsReady();
+
+      const publicKey = this.toStandardPublicKeyFormat(publicKey_);
+
+      const contacts = await this.getContacts();
+      console.log(`looking up: /ipns/${contacts[publicKey].id}`);
+      return node.name.resolve(`/ipns/${contacts[publicKey].id}`, {
+        nocache: false,
+      });
     };
 
     // returns the group key for the given group
@@ -849,12 +849,10 @@ class GravityProtocol {
       });
     };
 
-    this.getIpnsInfo = async () => {
-      return {
-        state: await node.name.pubsub.state(),
-        subs: await node.name.pubsub.subs(),
-      };
-    }
+    this.getIpnsInfo = async () => ({
+      state: await node.name.pubsub.state(),
+      subs: await node.name.pubsub.subs(),
+    });
 
     // node.files.rm('/posts', { recursive: true }).catch(() => {});
   }
