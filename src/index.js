@@ -138,7 +138,11 @@ function uuidv4() {
 //*  the protocol
 class GravityProtocol {
   constructor() {
-    const node = new IPFS();
+    const node = new IPFS({
+      EXPERIMENTAL: {
+        ipnsPubsub: true,
+      },
+    });
 
     this.ipfsReady = async () => node.ready;
     this.sodiumReady = async () => sodium.ready;
@@ -844,6 +848,13 @@ class GravityProtocol {
         }
       });
     };
+
+    this.getIpnsInfo = async () => {
+      return {
+        state: await node.name.pubsub.state(),
+        subs: await node.name.pubsub.subs(),
+      };
+    }
 
     // node.files.rm('/posts', { recursive: true }).catch(() => {});
   }
