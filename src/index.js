@@ -364,35 +364,6 @@ class GravityProtocol {
     };
     */
 
-    // checks if the new record is valid and more recent. if so, updates our list
-    this.updateIpnsRecord = async (publicKey, newRecord) => {
-      // TODO: make sure public key is the right kind
-      // TODO: check if more recent
-      // TODO: switch to actual records and validate with js-ipns
-      // TODO: also store in the right place in the profile
-      this.ipnsMap[publicKey] = newRecord;
-    };
-
-    // returns the most recent top level hash of the profile associated with the given public key
-    // TODO: uses only pubsub right now. limitations unknown. figure those out, augment with DHT?
-    this.lookupProfileHash = async (publicKey_, cacheOnly = false) => {
-      // TODO: I think the cache should be keyed by IPNS ID
-      const publicKey = this.toStandardPublicKeyFormat(publicKey_);
-
-      if (!cacheOnly) {
-        await this.ipfsReady();
-
-        // TODO: don't use name.resolve, use the new thing
-        const contacts = await this.getContacts();
-        const fromNetwork = await node.name.resolve(`/ipns/${contacts[publicKey].id}`, {
-          nocache: true,
-        });
-        await this.updateIpnsRecord(publicKey, fromNetwork);
-      }
-
-      return this.ipnsMap[publicKey];
-    };
-
     // returns the group key for the given group
     // no 'this' because I'm trying to make it harder to accidentally mishandle keys
     const getGroupKey = async (groupSalt) => {
@@ -869,6 +840,35 @@ class GravityProtocol {
     // for debugging
     this.getIpnsInfo = async () => this.ipnsMap;
 
+    // checks if the new record is valid and more recent. if so, updates our list
+    this.updateIpnsRecord = async (publicKey, newRecord) => {
+      // TODO: make sure public key is the right kind
+      // TODO: check if more recent
+      // TODO: switch to actual records and validate with js-ipns
+      // TODO: also store in the right place in the profile
+      this.ipnsMap[publicKey] = newRecord;
+    };
+
+    // returns the most recent top level hash of the profile associated with the given public key
+    // TODO: uses only pubsub right now. limitations unknown. figure those out, augment with DHT?
+    this.lookupProfileHash = async (publicKey_, cacheOnly = false) => {
+      // TODO: I think the cache should be keyed by IPNS ID
+      const publicKey = this.toStandardPublicKeyFormat(publicKey_);
+
+      if (!cacheOnly) {
+        await this.ipfsReady();
+
+        // TODO: don't use name.resolve, use the new thing
+        const contacts = await this.getContacts();
+        const fromNetwork = await node.name.resolve(`/ipns/${contacts[publicKey].id}`, {
+          nocache: true,
+        });
+        await this.updateIpnsRecord(publicKey, fromNetwork);
+      }
+
+      return this.ipnsMap[publicKey];
+    };
+    
     node.on('ready', async () => {
       // node.files.rm('/posts', { recursive: true }).catch(() => {});
       // node.files.rm('/bio', { recursive: true }).catch(() => {});
