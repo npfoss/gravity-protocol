@@ -840,6 +840,17 @@ class GravityProtocol {
     // for debugging
     this.getIpnsInfo = async () => this.ipnsMap;
 
+    // sends message to the specified peer address
+    this.sendToPeer = async (addr, message) => {
+      await this.ipfsReady();
+
+      // TODO: keep one connection open and reuse it like so:
+      //  https://github.com/libp2p/js-libp2p/blob/master/examples/chat/src/dialer.js
+      node.libp2p.dialProtocol(addr, '/gravity/0.0.1', (err, conn) => {
+        pull(pull.values([message]), conn);
+      });
+    }
+
     // checks if the new record is valid and more recent. if so, updates our list
     this.updateIpnsRecord = async (publicKey, newRecord) => {
       // TODO: make sure public key is the right kind
@@ -876,17 +887,25 @@ class GravityProtocol {
       // node.files.rm('/subscribers', { recursive: true }).catch(() => {});
       // node.files.rm('/private', { recursive: true }).catch(() => {});
 
+      const myIpnsId = (await this.getNodeInfo()).id;
+
+      // the other half of the IPNS setup
+      // ingests get and post requests for IPNS records
       node.libp2p.handle('/gravity/0.0.1', (protocolName, connection) => {
         pull(connection, pull.collect((err, data) => {
           console.log('received:', data);
           const str = data.toString();
           console.log('(as string):', str);
 
-          const split = str.split(/(\s+)/);
+          const split = str.split(/\s+/);
 
           if (split[0] === 'g') { // get
+            // if it's us, always respond
+            if (split[1] = myIpnsId) {
+              pull(pull.values([`p ${split[1]} ${await this.getMyProfileHash()}`]), connection);
+            }
             // TODO: responding blindly reveals who we're friends with (by what's in the cache)
-            if (split[1] in this.ipnsMap) {
+            else if (split[1] in this.ipnsMap) {
               pull(pull.values([`p ${split[1]} ${this.ipnsMap[split[1]]}`]), connection);
             }
           } else if (split[0] === 'p') { // post
@@ -897,15 +916,6 @@ class GravityProtocol {
 
       await sleep(2000);
       await this.autoconnectPeers();
-      await sleep(1000);
-
-      node.libp2p.dialProtocol('/p2p-circuit/ipfs/QmQfzzs8kv3NNABUVCL4cmQ7Q18KbM8Vn66eDw9qgEUaEH', '/gravity/0.0.1', (err, conn) => {
-        pull(pull.values(['testing message 9']), conn);
-      });
-      await sleep(5000);
-      node.libp2p.dialProtocol('/p2p-circuit/ipfs/QmQfzzs8kv3NNABUVCL4cmQ7Q18KbM8Vn66eDw9qgEUaEH', '/gravity/0.0.1', (err, conn) => {
-        pull(pull.values(['testing message 999939']), conn);
-      });
     });
   }
 }
