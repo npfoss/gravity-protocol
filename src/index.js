@@ -144,11 +144,6 @@ class GravityProtocol {
     this.ipfsReady = async () => node.ready;
     this.sodiumReady = async () => sodium.ready;
 
-    // maps public keys to ipns records // TODO: for now just the unsigned hash
-    // must be kept in sync with what's stored in the profile
-    // duplicated here and there^ for fast lookup (don't need to decrypt)
-    this.ipnsMap = {};
-
     // use standard format for public keys
     /* supports:
         * pkcs8 pem encoded key (standard for RSA) --> pkcs8 pem
@@ -837,6 +832,11 @@ class GravityProtocol {
       });
     };
 
+    // maps public keys to ipns records // TODO: for now just the unsigned hash
+    // must be kept in sync with what's stored in the profile
+    // duplicated here and there^ for fast lookup (don't need to decrypt)
+    this.ipnsMap = {};
+
     // for debugging
     this.getIpnsInfo = async () => this.ipnsMap;
 
@@ -868,7 +868,7 @@ class GravityProtocol {
 
       return this.ipnsMap[publicKey];
     };
-    
+
     node.on('ready', async () => {
       // node.files.rm('/posts', { recursive: true }).catch(() => {});
       // node.files.rm('/bio', { recursive: true }).catch(() => {});
