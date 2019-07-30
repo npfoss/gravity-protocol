@@ -4,6 +4,7 @@ const { crypto: libp2pcrypto, isIPFS } = require('ipfs');
 const Cookies = require('js-cookie');
 const sodium = require('libsodium-wrappers');
 const NodeRSA = require('node-rsa');
+const pull = require('pull-stream');
 
 
 //*  UTILS
@@ -45,7 +46,7 @@ const uintConcat = (a, b) => {
 };
 
 // sleep nonblocking
-// const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // for base64 string conversion to/from url safe strings (for pubkeys)
 // copies the format used by libsodium
@@ -138,11 +139,7 @@ function uuidv4() {
 //*  the protocol
 class GravityProtocol {
   constructor() {
-    const node = new IPFS({
-      EXPERIMENTAL: {
-        ipnsPubsub: true,
-      },
-    });
+    const node = new IPFS();
 
     this.ipfsReady = async () => node.ready;
     this.sodiumReady = async () => sodium.ready;
@@ -201,7 +198,8 @@ class GravityProtocol {
 
     // use with caution
     this.setMasterKey = (newkey) => {
-      Cookies.set('gravity-master-key', newkey);// , { secure: true }); // for https only
+      Cookies.set('gravity-master-key', newkey, { expires: 365 });
+      // , { secure: true }); // for https only
       // TODO: store somewhere better than in a cookie.
       //  (only store a device key, keep master key enc in profile only)
     };
@@ -853,7 +851,31 @@ class GravityProtocol {
       subs: await node.name.pubsub.subs(),
     });
 
-    // node.files.rm('/posts', { recursive: true }).catch(() => {});
+    node.on('ready', async () => {
+      // node.files.rm('/posts', { recursive: true }).catch(() => {});
+      // node.files.rm('/bio', { recursive: true }).catch(() => {});
+      // node.files.rm('/groups', { recursive: true }).catch(() => {});
+      // node.files.rm('/subscribers', { recursive: true }).catch(() => {});
+      // node.files.rm('/private', { recursive: true }).catch(() => {});
+
+      node.libp2p.handle('/gravity/0.0.1', (protocolName, connection) => {
+        pull(connection, pull.collect((err, data) => {
+          console.log('received:', data.toString());
+        }));
+      });
+
+      await sleep(2000);
+      await this.autoconnectPeers();
+      await sleep(1000);
+
+      node.libp2p.dialProtocol('/p2p-circuit/ipfs/QmQfzzs8kv3NNABUVCL4cmQ7Q18KbM8Vn66eDw9qgEUaEH', '/gravity/0.0.1', (err, conn) => {
+        pull(pull.values(['testing message 9']), conn);
+      });
+      await sleep(5000);
+      node.libp2p.dialProtocol('/p2p-circuit/ipfs/QmQfzzs8kv3NNABUVCL4cmQ7Q18KbM8Vn66eDw9qgEUaEH', '/gravity/0.0.1', (err, conn) => {
+        pull(pull.values(['testing message 999939']), conn);
+      });
+    });
   }
 }
 
