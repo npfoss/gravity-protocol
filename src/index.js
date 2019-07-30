@@ -568,14 +568,25 @@ class GravityProtocol {
       return writeFile(node, `/bio/${filename}`, data);
     };
 
-    this.publishProfile = async () => {
-      await this.ipfsReady();
-
+    // publishes profile and alerts everyone in the list of addrs
+    //  useful if you update your profile with a DM for one person; no need to alert everyone else
+    this.publishProfile = async (addrs) => {
+      const myIpnsId = (await this.getNodeInfo()).id;
       const hash = await this.getMyProfileHash();
+      // TODO: make this an actual IPNS record
 
-      return node.name.publish(`/ipfs/${hash}`, {
-        lifetime: '300s', // string - Time duration of the record. Default: 24h
-        // ttl:   ,   // string - Time duration this record should be cached
+      // if addresses not provided, send to all contacts
+      let addrsToTry = addrs;
+      if (addrsToTry === undefined) {
+        const contacts = await this.getContacts();
+
+        addrsToTry = Object.keys(contacts).map(k =>
+        // eslint-disable-next-line implicit-arrow-linebreak
+          (contacts[k].addresses ? contacts[k].addresses : [])).flat();
+      }
+
+      addrsToTry.forEach((addr) => {
+        this.sendToPeer(addr, `p ${myIpnsId} ${hash}`);
       });
     };
 
@@ -832,9 +843,9 @@ class GravityProtocol {
       });
     };
 
-    // maps public keys to ipns records // TODO: for now just the unsigned hash
+    // maps ipns IDs ('Qm...') to ipns records // TODO: for now just the unsigned hash
     // must be kept in sync with what's stored in the profile
-    // duplicated here and there^ for fast lookup (don't need to decrypt)
+    // duplicated here and there^ for fast lookup (so you don't need to decrypt every time)
     this.ipnsMap = {};
 
     // for debugging
@@ -843,6 +854,7 @@ class GravityProtocol {
     // sends message to the specified peer address
     this.sendToPeer = async (addr, message) => {
       await this.ipfsReady();
+      console.log(`sending "${message}" to ${addr}`);
 
       // TODO: keep one connection open and reuse it like so:
       //  https://github.com/libp2p/js-libp2p/blob/master/examples/chat/src/dialer.js
@@ -852,32 +864,39 @@ class GravityProtocol {
     };
 
     // checks if the new record is valid and more recent. if so, updates our list
-    this.updateIpnsRecord = async (publicKey, newRecord) => {
+    this.updateIpnsRecord = async (ipnsId, newRecord) => {
       // TODO: make sure public key is the right kind
       // TODO: check if more recent
       // TODO: switch to actual records and validate with js-ipns
       // TODO: also store in the right place in the profile
-      this.ipnsMap[publicKey] = newRecord;
+      this.ipnsMap[ipnsId] = newRecord;
     };
 
     // returns the most recent top level hash of the profile associated with the given public key
-    // TODO: uses only pubsub right now. limitations unknown. figure those out, augment with DHT?
-    this.lookupProfileHash = async (publicKey_, cacheOnly = false) => {
-      // TODO: I think the cache should be keyed by IPNS ID
+    // will query peers for most up to date value if timeout is nonzero, otherwise pulls from cache
+    this.lookupProfileHash = async (publicKey_, timeout = 2000) => {
       const publicKey = this.toStandardPublicKeyFormat(publicKey_);
+      const contacts = await this.getContacts();
+      const ipnsId = contacts[publicKey].id;
 
-      if (!cacheOnly) {
-        await this.ipfsReady();
+      if (timeout) {
+        // TODO: this can be an interesting and complicated strategy
+        //  for example, you could only ask people in a certain more trusted group
+        //  or you could try a few people first, and then more if that fails
+        // for now, ask everyone at once
+        const addrsToTry = Object.keys(contacts).map(k =>
+        // eslint-disable-next-line implicit-arrow-linebreak
+          (contacts[k].addresses ? contacts[k].addresses : [])).flat();
+        console.log(`getting help from my friends: ${addrsToTry}`);
 
-        // TODO: don't use name.resolve, use the new thing
-        const contacts = await this.getContacts();
-        const fromNetwork = await node.name.resolve(`/ipns/${contacts[publicKey].id}`, {
-          nocache: true,
+        addrsToTry.forEach((addr) => {
+          this.sendToPeer(addr, `g ${ipnsId}`);
         });
-        await this.updateIpnsRecord(publicKey, fromNetwork);
+
+        await sleep(timeout);
       }
 
-      return this.ipnsMap[publicKey];
+      return this.ipnsMap[ipnsId];
     };
 
     node.on('ready', async () => {
@@ -888,23 +907,27 @@ class GravityProtocol {
       // node.files.rm('/private', { recursive: true }).catch(() => {});
 
       const myIpnsId = (await this.getNodeInfo()).id;
+      console.log('my id: ' + myIpnsId)
 
       // the other half of the IPNS setup
       // ingests get and post requests for IPNS records
       node.libp2p.handle('/gravity/0.0.1', (protocolName, connection) => {
         pull(connection, pull.collect(async (err, data) => {
-          console.log('received:', data);
           const str = data.toString();
-          console.log('(as string):', str);
+          console.log('received:', str);
 
           const split = str.split(/\s+/);
+          console.log(split)
 
           if (split[0] === 'g') { // get
             // if it's us, always respond
             if (split[1] === myIpnsId) {
+              console.log('sending mine');
               pull(pull.values([`p ${split[1]} ${await this.getMyProfileHash()}`]), connection);
+              console.log('sent?' + `p ${split[1]} ${await this.getMyProfileHash()}`);
             } else if (split[1] in this.ipnsMap) {
               // TODO: responding blindly reveals who we're friends with (by what's in the cache)
+              console.log('sending other');
               pull(pull.values([`p ${split[1]} ${this.ipnsMap[split[1]]}`]), connection);
             }
           } else if (split[0] === 'p') { // post
