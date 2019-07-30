@@ -144,6 +144,10 @@ class GravityProtocol {
     this.ipfsReady = async () => node.ready;
     this.sodiumReady = async () => sodium.ready;
 
+    // maps public keys to ipns records // TODO: for now just the unsigned hash
+    // must be kept in sync with what's stored in the profile
+    // duplicated here and there^ for fast lookup (don't need to decrypt)
+    this.ipnsMap = {};
 
     // use standard format for public keys
     /* supports:
@@ -360,17 +364,33 @@ class GravityProtocol {
     };
     */
 
+    // checks if the new record is valid and more recent. if so, updates our list
+    this.updateIpnsRecord = async (publicKey, newRecord) => {
+      // TODO: make sure public key is the right kind
+      // TODO: check if more recent
+      // TODO: switch to actual records and validate with js-ipns
+      // TODO: also store in the right place in the profile
+      this.ipnsMap[publicKey] = newRecord;
+    };
+
     // returns the most recent top level hash of the profile associated with the given public key
     // TODO: uses only pubsub right now. limitations unknown. figure those out, augment with DHT?
-    this.lookupProfileHash = async (publicKey_) => {
-      await this.ipfsReady();
-
+    this.lookupProfileHash = async (publicKey_, cacheOnly = false) => {
+      // TODO: I think the cache should be keyed by IPNS ID
       const publicKey = this.toStandardPublicKeyFormat(publicKey_);
 
-      const contacts = await this.getContacts();
-      return node.name.resolve(`/ipns/${contacts[publicKey].id}`, {
-        nocache: false,
-      });
+      if (!cacheOnly) {
+        await this.ipfsReady();
+
+        // TODO: don't use name.resolve, use the new thing
+        const contacts = await this.getContacts();
+        const fromNetwork = await node.name.resolve(`/ipns/${contacts[publicKey].id}`, {
+          nocache: true,
+        });
+        await this.updateIpnsRecord(publicKey, fromNetwork);
+      }
+
+      return this.ipnsMap[publicKey];
     };
 
     // returns the group key for the given group
@@ -846,10 +866,8 @@ class GravityProtocol {
       });
     };
 
-    this.getIpnsInfo = async () => ({
-      state: await node.name.pubsub.state(),
-      subs: await node.name.pubsub.subs(),
-    });
+    // for debugging
+    this.getIpnsInfo = async () => this.ipnsMap;
 
     node.on('ready', async () => {
       // node.files.rm('/posts', { recursive: true }).catch(() => {});
@@ -860,7 +878,20 @@ class GravityProtocol {
 
       node.libp2p.handle('/gravity/0.0.1', (protocolName, connection) => {
         pull(connection, pull.collect((err, data) => {
-          console.log('received:', data.toString());
+          console.log('received:', data);
+          const str = data.toString();
+          console.log('(as string):', str);
+
+          const split = str.split(/(\s+)/);
+
+          if (split[0] === 'g') { // get
+            // TODO: responding blindly reveals who we're friends with (by what's in the cache)
+            if (split[1] in this.ipnsMap) {
+              pull(pull.values([`p ${split[1]} ${this.ipnsMap[split[1]]}`]), connection);
+            }
+          } else if (split[0] === 'p') { // post
+            this.updateIpnsRecord(split[1], split[2]);
+          }
         }));
       });
 
