@@ -849,7 +849,7 @@ class GravityProtocol {
       node.libp2p.dialProtocol(addr, '/gravity/0.0.1', (err, conn) => {
         pull(pull.values([message]), conn);
       });
-    }
+    };
 
     // checks if the new record is valid and more recent. if so, updates our list
     this.updateIpnsRecord = async (publicKey, newRecord) => {
@@ -892,7 +892,7 @@ class GravityProtocol {
       // the other half of the IPNS setup
       // ingests get and post requests for IPNS records
       node.libp2p.handle('/gravity/0.0.1', (protocolName, connection) => {
-        pull(connection, pull.collect((err, data) => {
+        pull(connection, pull.collect(async (err, data) => {
           console.log('received:', data);
           const str = data.toString();
           console.log('(as string):', str);
@@ -901,11 +901,10 @@ class GravityProtocol {
 
           if (split[0] === 'g') { // get
             // if it's us, always respond
-            if (split[1] = myIpnsId) {
+            if (split[1] === myIpnsId) {
               pull(pull.values([`p ${split[1]} ${await this.getMyProfileHash()}`]), connection);
-            }
-            // TODO: responding blindly reveals who we're friends with (by what's in the cache)
-            else if (split[1] in this.ipnsMap) {
+            } else if (split[1] in this.ipnsMap) {
+              // TODO: responding blindly reveals who we're friends with (by what's in the cache)
               pull(pull.values([`p ${split[1]} ${this.ipnsMap[split[1]]}`]), connection);
             }
           } else if (split[0] === 'p') { // post
