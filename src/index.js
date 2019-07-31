@@ -854,8 +854,7 @@ class GravityProtocol {
     // sends message to the specified peer address
     this.sendToPeer = async (addr, message) => {
       await this.ipfsReady();
-      console.log(`sending "${message}" to ${addr}`);
-
+      
       // TODO: keep one connection open and reuse it like so:
       //  https://github.com/libp2p/js-libp2p/blob/master/examples/chat/src/dialer.js
       node.libp2p.dialProtocol(addr, '/gravity/0.0.1', (err, conn) => {
