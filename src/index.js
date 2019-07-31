@@ -859,7 +859,20 @@ class GravityProtocol {
       // TODO: keep one connection open and reuse it like so:
       //  https://github.com/libp2p/js-libp2p/blob/master/examples/chat/src/dialer.js
       node.libp2p.dialProtocol(addr, '/gravity/0.0.1', (err, conn) => {
-        pull(pull.values([message]), conn);
+        if (err) {
+          throw err;
+        }
+        pull(pull.values([message]), conn, pull.collect((err2, data) => {
+          if (err2) {
+            throw err2;
+          }
+          console.log(`got response: ${data.toString()}`);
+          const split = data.toString().split(/\s+/);
+
+          if (split[0] === 'p') { // post
+            this.updateIpnsRecord(split[1], split[2]);
+          }
+        }));
       });
     };
 
@@ -896,7 +909,7 @@ class GravityProtocol {
         await sleep(timeout);
       }
 
-      return this.ipnsMap[ipnsId];
+      return `/ipfs/${this.ipnsMap[ipnsId]}`;
     };
 
     node.on('ready', async () => {
@@ -907,33 +920,31 @@ class GravityProtocol {
       // node.files.rm('/private', { recursive: true }).catch(() => {});
 
       const myIpnsId = (await this.getNodeInfo()).id;
-      console.log('my id: ' + myIpnsId)
+      console.log(`my id: ${myIpnsId}`);
 
       // the other half of the IPNS setup
-      // ingests get and post requests for IPNS records
+      // ingests get and post requests for IPNS records, responding to gets
       node.libp2p.handle('/gravity/0.0.1', (protocolName, connection) => {
-        pull(connection, pull.collect(async (err, data) => {
-          const str = data.toString();
-          console.log('received:', str);
+        pull(
+          connection,
+          pull.asyncMap(async (data, cb) => {
+            console.log('received:', data.toString());
+            const split = data.toString().split(/\s+/);
 
-          const split = str.split(/\s+/);
-          console.log(split)
-
-          if (split[0] === 'g') { // get
-            // if it's us, always respond
-            if (split[1] === myIpnsId) {
-              console.log('sending mine');
-              pull(pull.values([`p ${split[1]} ${await this.getMyProfileHash()}`]), connection);
-              console.log('sent?' + `p ${split[1]} ${await this.getMyProfileHash()}`);
-            } else if (split[1] in this.ipnsMap) {
-              // TODO: responding blindly reveals who we're friends with (by what's in the cache)
-              console.log('sending other');
-              pull(pull.values([`p ${split[1]} ${this.ipnsMap[split[1]]}`]), connection);
+            if (split[0] === 'p') { // post
+              this.updateIpnsRecord(split[1], split[2]);
+            } else if (split[0] === 'g') { // it's a get, need to respond
+              // TODO: responding blindly reveals who we're friends with (by what's in the cache).
+              //  maybe don't respond to all of them
+              if (split[1] === myIpnsId) {
+                cb(null, `p ${split[1]} ${await this.getMyProfileHash()}`);
+              } else if (split[1] in this.ipnsMap) {
+                cb(null, `p ${split[1]} ${this.ipnsMap[split[1]]}`);
+              }
             }
-          } else if (split[0] === 'p') { // post
-            this.updateIpnsRecord(split[1], split[2]);
-          }
-        }));
+          }),
+          connection,
+        );
       });
 
       await sleep(2000);
