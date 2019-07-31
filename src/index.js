@@ -854,7 +854,7 @@ class GravityProtocol {
     // sends message to the specified peer address
     this.sendToPeer = async (addr, message) => {
       await this.ipfsReady();
-      
+
       // TODO: keep one connection open and reuse it like so:
       //  https://github.com/libp2p/js-libp2p/blob/master/examples/chat/src/dialer.js
       node.libp2p.dialProtocol(addr, '/gravity/0.0.1', (err, conn) => {
@@ -936,12 +936,15 @@ class GravityProtocol {
               // TODO: responding blindly reveals who we're friends with (by what's in the cache).
               //  maybe don't respond to all of them
               if (split[1] === myIpnsId) {
-                cb(null, `p ${split[1]} ${await this.getMyProfileHash()}`);
+                return cb(null, `p ${split[1]} ${await this.getMyProfileHash()}`);
               } else if (split[1] in this.ipnsMap) {
-                cb(null, `p ${split[1]} ${this.ipnsMap[split[1]]}`);
+                return cb(null, `p ${split[1]} ${this.ipnsMap[split[1]]}`);
               }
             }
+
+            return cb(null);
           }),
+          pull.flatten(),
           connection,
         );
       });
