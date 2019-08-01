@@ -1,6 +1,7 @@
 
 const IPFS = require('ipfs');
 const { crypto: libp2pcrypto, isIPFS } = require('ipfs');
+const ipns = require('ipns');
 const Cookies = require('js-cookie');
 const sodium = require('libsodium-wrappers');
 const NodeRSA = require('node-rsa');
