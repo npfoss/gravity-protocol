@@ -160,7 +160,7 @@ class GravityProtocol {
       Object.keys(ipnsMap).forEach((k) => {
         readable[k] = Object.assign({}, ipnsMap[k]);
         readable[k].signature = sodium.to_base64(readable[k].signature);
-        readable[k].pubkey = sodium.to_base64(readable[k].pubkey);
+        readable[k].pubKey = sodium.to_base64(readable[k].pubKey);
         readable[k].validity = sodium.to_base64(readable[k].validity);
       });
       return readable;
@@ -602,7 +602,7 @@ class GravityProtocol {
 
       const value = `/ipfs/${await this.getMyProfileHash()}`;
       const sequenceNumber = Date.now();
-      const lifetime = 5000; // ms
+      const lifetime = 15 * 60 * 1000; // ms
       const record = await new Promise((resolve, reject) => {
         ipns.create(privateKey, value, sequenceNumber, lifetime, (err, rec) => {
           if (err) { reject(err); }
