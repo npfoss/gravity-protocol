@@ -145,6 +145,26 @@ class GravityProtocol {
     this.ipfsReady = async () => node.ready;
     this.sodiumReady = async () => sodium.ready;
 
+    // maps ipns IDs ('Qm...') to links and ipns records
+    // must be kept in sync with what's stored in the profile
+    // duplicated here and there^ for fast lookup (so you don't need to decrypt every time)
+    const ipnsMap = {};
+
+    // for debugging
+    this.getIpnsInfo = async () => {
+      await this.sodiumReady();
+      console.log(ipnsMap);
+
+      const readable = {};
+      Object.keys(ipnsMap).forEach((k) => {
+        readable[k] = Object.assign({}, ipnsMap[k]);
+        readable[k].signature = sodium.to_base64(readable[k].signature);
+        readable[k].pubkey = sodium.to_base64(readable[k].pubkey);
+        readable[k].validity = sodium.to_base64(readable[k].validity);
+      });
+      return readable;
+    };
+
     // use standard format for public keys
     /* supports:
         * pkcs8 pem encoded key (standard for RSA) --> pkcs8 pem
@@ -572,24 +592,27 @@ class GravityProtocol {
     // publishes profile and alerts everyone in the list of addrs
     //  useful if you update your profile with a DM for one person; no need to alert everyone else
     this.publishProfile = async (addrs) => {
+      // TODO: don't recompute all of this if it hasn't changed?
       await this.sodiumReady();
 
       const myIpnsId = (await this.getNodeInfo()).id;
-      const hash = await this.getMyProfileHash();
-      // TODO: make this an actual IPNS record
+      const privateKey = node._peerInfo.id._privKey; // eslint-disable-line no-underscore-dangle
+      const publicKey = node._peerInfo.id._pubKey; // eslint-disable-line no-underscore-dangle
 
-      // eslint-disable-next-line no-underscore-dangle
-      const privateKey = node._peerInfo.id._privKey;
-      const value = `/ipfs/${hash}`;
+      const value = `/ipfs/${await this.getMyProfileHash()}`;
       const sequenceNumber = Date.now();
-      const lifetime = 5000;
+      const lifetime = 5000; // ms
       const record = await new Promise((resolve, reject) => {
         ipns.create(privateKey, value, sequenceNumber, lifetime, (err, rec) => {
-          if (err) { reject(err); } else { resolve(rec); }
+          if (err) { reject(err); }
+          ipns.embedPublicKey(publicKey, rec, (err2, rec2) => {
+            if (err2) { reject(err2); } else { resolve(rec2); }
+          });
         });
       });
-      record.signature = sodium.to_base64(record.signature);
-      console.log(record);
+
+      ipnsMap[myIpnsId] = record;
+      const message = `p ${myIpnsId} ${sodium.to_base64(ipns.marshal(record))}`;
 
       // if addresses not provided, send to all contacts
       let addrsToTry = addrs;
@@ -602,7 +625,7 @@ class GravityProtocol {
       }
 
       addrsToTry.forEach((addr) => {
-        this.sendToPeer(addr, `p ${myIpnsId} ${JSON.stringify(record)}`);
+        this.sendToPeer(addr, message);
       });
     };
 
@@ -859,14 +882,6 @@ class GravityProtocol {
       });
     };
 
-    // maps ipns IDs ('Qm...') to ipns records // TODO: for now just the unsigned hash
-    // must be kept in sync with what's stored in the profile
-    // duplicated here and there^ for fast lookup (so you don't need to decrypt every time)
-    let ipnsMap = {};
-
-    // for debugging
-    this.getIpnsInfo = async () => ipnsMap;
-
     // sends message to the specified peer address
     this.sendToPeer = async (addr, message) => {
       await this.ipfsReady();
@@ -892,12 +907,42 @@ class GravityProtocol {
     };
 
     // checks if the new record is valid and more recent. if so, updates our list
-    this.updateIpnsRecord = async (ipnsId, newRecord_) => {
-      // TODO: make sure public key is the right kind
-      // TODO: check if more recent
-      // TODO: switch to actual records and validate with js-ipns
-      // TODO: also store in the right place in the profile
-      ipnsMap[ipnsId] = newRecord;
+    this.updateIpnsRecord = async (ipnsId, newRecordProto64) => {
+      // convenient to save the record as an object
+      const newRecord = ipns.unmarshal(sodium.from_base64(newRecordProto64));
+      newRecord.value = Buffer.from(newRecord.value).toString();
+      // these all need to be buffers
+      newRecord.pubKey = Buffer.from(newRecord.pubKey);
+      newRecord.signature = Buffer.from(newRecord.signature);
+      newRecord.validity = Buffer.from(newRecord.validity);
+      // TODO: derive ipnsId from pubkey
+
+      if (!ipnsMap[ipnsId] || newRecord.sequence > ipnsMap[ipnsId].sequence) {
+        // the new record is more recent
+
+        const pubKey = await new Promise((resolve, reject) => {
+          ipns.extractPublicKey({ pubKey: 'dummy' }, newRecord, (err, pk) => {
+            if (err) { reject(err); } else { resolve(pk); }
+          });
+        });
+        console.log(pubKey);
+
+        try {
+          await new Promise((resolve, reject) => {
+            ipns.validate(pubKey, newRecord, (err) => {
+              // if no error, the record is valid
+              if (err) { reject(err); }
+              resolve();
+            });
+          });
+        } catch (err) {
+          console.warn(err);
+          return;
+        }
+
+        // TODO: also store in the right place in the profile
+        ipnsMap[ipnsId] = newRecord;
+      }
     };
 
     // returns the most recent top level hash of the profile associated with the given public key
@@ -924,7 +969,7 @@ class GravityProtocol {
         await sleep(timeout);
       }
 
-      return `/ipfs/${ipnsMap[ipnsId]}`;
+      return `/ipfs/${ipnsMap[ipnsId].value}`;
     };
 
     node.on('ready', async () => {
@@ -936,6 +981,8 @@ class GravityProtocol {
 
       const myIpnsId = (await this.getNodeInfo()).id;
       console.log(`my id: ${myIpnsId}`);
+
+      await this.sodiumReady();
 
       // the other half of the IPNS setup
       // ingests get and post requests for IPNS records, responding to gets
@@ -952,9 +999,11 @@ class GravityProtocol {
               // TODO: responding blindly reveals who we're friends with (by what's in the cache).
               //  maybe don't respond to all of them
               if (split[1] === myIpnsId) {
-                return cb(null, `p ${split[1]} ${await this.getMyProfileHash()}`);
-              } if (split[1] in ipnsMap) {
-                return cb(null, `p ${split[1]} ${ipnsMap[split[1]]}`);
+                // if they're asking for mine, might as well give the most up to date answer
+                await this.publishProfile([]);
+              }
+              if (split[1] in ipnsMap) {
+                return cb(null, `p ${split[1]} ${ipns.marshal(sodium.to_base64(ipnsMap[split[1]]))}`);
               }
             }
 
