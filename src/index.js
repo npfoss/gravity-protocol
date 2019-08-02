@@ -333,7 +333,7 @@ class GravityProtocol {
       await Promise.all(promisesToWaitFor);
     };
 
-    // given the path to the subscribers folder of someone else's profile,
+    // given the path to the top level folder of someone else's profile,
     // try to decrypt each blob in order to find the one intended for you
     // returns the shared secret as buffer/Uint8Array
     this.testDecryptAllSubscribers = async (path) => {
@@ -345,7 +345,7 @@ class GravityProtocol {
       // eslint-disable-next-line no-underscore-dangle
       const privateKey = node._peerInfo.id._privKey._key;
 
-      const lst = await node.ls(path);
+      const lst = await node.ls(`${path}/subscribers`);
 
       const promises = lst.map(async (obj) => {
         const ciphertext = await node.cat(obj.hash);
@@ -881,7 +881,7 @@ class GravityProtocol {
           if (err2) {
             throw err2;
           }
-          console.log(`got response: ${data.toString()}`);
+          // console.log(`got response: ${data.toString()}`);
           const split = data.toString().split(/\s+/);
 
           if (split[0] === 'p') { // post
@@ -950,7 +950,6 @@ class GravityProtocol {
         const addrsToTry = Object.keys(contacts).map(k =>
         // eslint-disable-next-line implicit-arrow-linebreak
           (contacts[k].addresses ? contacts[k].addresses : [])).flat();
-        console.log(`getting help from my friends: ${addrsToTry}`);
 
         addrsToTry.forEach((addr) => {
           this.sendToPeer(addr, `g ${ipnsId}`);
@@ -984,7 +983,7 @@ class GravityProtocol {
         pull(
           connection,
           pull.asyncMap(async (data, cb) => {
-            console.log('received:', data.toString());
+            // console.log('received:', data.toString());
             const split = data.toString().split(/\s+/);
 
             if (split[0] === 'p') { // post
