@@ -572,9 +572,24 @@ class GravityProtocol {
     // publishes profile and alerts everyone in the list of addrs
     //  useful if you update your profile with a DM for one person; no need to alert everyone else
     this.publishProfile = async (addrs) => {
+      await this.sodiumReady();
+
       const myIpnsId = (await this.getNodeInfo()).id;
       const hash = await this.getMyProfileHash();
       // TODO: make this an actual IPNS record
+
+      // eslint-disable-next-line no-underscore-dangle
+      const privateKey = node._peerInfo.id._privKey;
+      const value = `/ipfs/${hash}`;
+      const sequenceNumber = Date.now();
+      const lifetime = 5000;
+      const record = await new Promise((resolve, reject) => {
+        ipns.create(privateKey, value, sequenceNumber, lifetime, (err, rec) => {
+          if (err) { reject(err); } else { resolve(rec); }
+        });
+      });
+      record.signature = sodium.to_base64(record.signature);
+      console.log(record);
 
       // if addresses not provided, send to all contacts
       let addrsToTry = addrs;
@@ -587,7 +602,7 @@ class GravityProtocol {
       }
 
       addrsToTry.forEach((addr) => {
-        this.sendToPeer(addr, `p ${myIpnsId} ${hash}`);
+        this.sendToPeer(addr, `p ${myIpnsId} ${JSON.stringify(record)}`);
       });
     };
 
@@ -938,7 +953,7 @@ class GravityProtocol {
               //  maybe don't respond to all of them
               if (split[1] === myIpnsId) {
                 return cb(null, `p ${split[1]} ${await this.getMyProfileHash()}`);
-              } else if (split[1] in this.ipnsMap) {
+              } if (split[1] in this.ipnsMap) {
                 return cb(null, `p ${split[1]} ${this.ipnsMap[split[1]]}`);
               }
             }
