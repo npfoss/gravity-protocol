@@ -740,6 +740,7 @@ class GravityProtocol {
     // decided reacts are best posted by hash since they'll get lots of re-use
     // returns path to post
     this.postReact = async (groupSalt, link, parents) => {
+      if (true) { throw new Error('not in MVP'); } // AKA untested and unused
       await this.ipfsReady();
 
       // validate
@@ -765,6 +766,7 @@ class GravityProtocol {
     // if image is the image data itself, an extension is required to identify it, e.g. gif, jpg
     // returns ready-to-use ipfs link to that react
     this.createNewReact = async (groupSalt, label_, image, extension_) => {
+      if (true) { throw new Error('not in MVP'); } // AKA untested and unused
       await this.ipfsReady();
       await this.sodiumReady();
 
@@ -911,8 +913,8 @@ class GravityProtocol {
           });
         });
         if (pubKey === 'dummy') {
-          console.warn("public key wasn't attached to record")
-          return
+          console.warn("public key wasn't attached to record");
+          return;
         }
 
         try {
@@ -928,7 +930,7 @@ class GravityProtocol {
           return;
         }
 
-        // TODO: also store in the right place in the profile
+        // TODO: also store in the right place in the profile (adrs?) for friends and yourself later
         ipnsMap[ipnsId] = newRecord;
       }
     };
