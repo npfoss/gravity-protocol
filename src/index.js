@@ -862,10 +862,10 @@ class GravityProtocol {
     // maps ipns IDs ('Qm...') to ipns records // TODO: for now just the unsigned hash
     // must be kept in sync with what's stored in the profile
     // duplicated here and there^ for fast lookup (so you don't need to decrypt every time)
-    this.ipnsMap = {};
+    let ipnsMap = {};
 
     // for debugging
-    this.getIpnsInfo = async () => this.ipnsMap;
+    this.getIpnsInfo = async () => ipnsMap;
 
     // sends message to the specified peer address
     this.sendToPeer = async (addr, message) => {
@@ -892,12 +892,12 @@ class GravityProtocol {
     };
 
     // checks if the new record is valid and more recent. if so, updates our list
-    this.updateIpnsRecord = async (ipnsId, newRecord) => {
+    this.updateIpnsRecord = async (ipnsId, newRecord_) => {
       // TODO: make sure public key is the right kind
       // TODO: check if more recent
       // TODO: switch to actual records and validate with js-ipns
       // TODO: also store in the right place in the profile
-      this.ipnsMap[ipnsId] = newRecord;
+      ipnsMap[ipnsId] = newRecord;
     };
 
     // returns the most recent top level hash of the profile associated with the given public key
@@ -924,7 +924,7 @@ class GravityProtocol {
         await sleep(timeout);
       }
 
-      return `/ipfs/${this.ipnsMap[ipnsId]}`;
+      return `/ipfs/${ipnsMap[ipnsId]}`;
     };
 
     node.on('ready', async () => {
@@ -953,8 +953,8 @@ class GravityProtocol {
               //  maybe don't respond to all of them
               if (split[1] === myIpnsId) {
                 return cb(null, `p ${split[1]} ${await this.getMyProfileHash()}`);
-              } if (split[1] in this.ipnsMap) {
-                return cb(null, `p ${split[1]} ${this.ipnsMap[split[1]]}`);
+              } if (split[1] in ipnsMap) {
+                return cb(null, `p ${split[1]} ${ipnsMap[split[1]]}`);
               }
             }
 
