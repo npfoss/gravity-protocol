@@ -135,13 +135,13 @@ function uuidv4() {
     (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
   )
 }
-/* eslint-enable */
 
 // async filtering, courtesy of https://stackoverflow.com/a/46842181/7343159
 async function filter(arr, callback) {
-  const fail = Symbol()
-  return (await Promise.all(arr.map(async item => (await callback(item)) ? item : fail))).filter(i=>i!==fail)
+  const fail = Symbol();
+  return (await Promise.all(arr.map(async item => ((await callback(item)) ? item : fail)))).filter(i => i !== fail);
 }
+/* eslint-enable */
 
 
 //*  the protocol
@@ -500,7 +500,7 @@ class GravityProtocol {
     };
 
     // gets the list of groups you're in
-    this.getGroupList = async (publicKey='me') => {
+    this.getGroupList = async (publicKey = 'me') => {
       await this.ipfsReady();
       await this.sodiumReady();
 
@@ -514,12 +514,12 @@ class GravityProtocol {
         const key = this.testDecryptAllSubscribers(friendPath);
 
         const groups = await node.ls(`${friendPath}/groups`)
-            .then(flist => flist.map(f => f.name));
+          .then(flist => flist.map(f => f.name));
 
-        return filter(groups, async g => {
+        return filter(groups, async (g) => {
           // check if there's a folder corresponding to your shared key
           const files = node.ls(`${friendPath}/groups/${g}`)
-              .then(flist => flist.map(f => f.name));
+            .then(flist => flist.map(f => f.name));
           const salt = sodium.from_base64(g);
           return (await files).includes(hashfunc(uintConcat(salt, await key)));
         });
@@ -993,7 +993,7 @@ class GravityProtocol {
       // TODO: cache all of this, it shouldn't change often (if ever) and testDecrypt is slow
       const path = await this.lookupProfileHash(publicKey);
       return this.testDecryptAllSubscribers(path);
-    }
+    };
 
     node.on('ready', async () => {
       // node.files.rm('/posts', { recursive: true }).catch(() => {});
