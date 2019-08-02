@@ -963,6 +963,12 @@ class GravityProtocol {
       return ipnsMap[ipnsId].value;
     };
 
+    this.getFriendKey = async (publicKey) => {
+      // TODO: cache all of this, it shouldn't change often (if ever) and testDecrypt is slow
+      const path = await this.lookupProfileHash(publicKey);
+      return this.testDecryptAllSubscribers(path);
+    }
+
     node.on('ready', async () => {
       // node.files.rm('/posts', { recursive: true }).catch(() => {});
       // node.files.rm('/bio', { recursive: true }).catch(() => {});
