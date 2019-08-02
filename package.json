@@ -24,6 +24,7 @@
     "ipns": "~0.5.2",
     "js-cookie": "^2.2.0",
     "libsodium-wrappers": "^0.7.4",
+    "multihashing": "^0.3.3",
     "node-rsa": "^1.0.5",
     "pull-stream": "^3.6.13"
   },

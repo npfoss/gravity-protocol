@@ -2,6 +2,7 @@
 const IPFS = require('ipfs');
 const { crypto: libp2pcrypto, isIPFS } = require('ipfs');
 const ipns = require('ipns');
+const multihashing = require('multihashing');
 const Cookies = require('js-cookie');
 const sodium = require('libsodium-wrappers');
 const NodeRSA = require('node-rsa');
@@ -612,7 +613,7 @@ class GravityProtocol {
       });
 
       ipnsMap[myIpnsId] = record;
-      const message = `p ${myIpnsId} ${sodium.to_base64(ipns.marshal(record))}`;
+      const message = `p ${sodium.to_base64(ipns.marshal(record))}`;
 
       // if addresses not provided, send to all contacts
       let addrsToTry = addrs;
@@ -900,22 +901,24 @@ class GravityProtocol {
           const split = data.toString().split(/\s+/);
 
           if (split[0] === 'p') { // post
-            this.updateIpnsRecord(split[1], split[2]);
+            this.updateIpnsRecord(split[1]);
           }
         }));
       });
     };
 
     // checks if the new record is valid and more recent. if so, updates our list
-    this.updateIpnsRecord = async (ipnsId, newRecordProto64) => {
+    this.updateIpnsRecord = async (newRecordProto64) => {
       // convenient to save the record as an object
       const newRecord = ipns.unmarshal(sodium.from_base64(newRecordProto64));
       newRecord.value = Buffer.from(newRecord.value).toString();
       // these all need to be buffers
+      // TODO: submit github issue to js-ipns if it's still like this in the new version
       newRecord.pubKey = Buffer.from(newRecord.pubKey);
       newRecord.signature = Buffer.from(newRecord.signature);
       newRecord.validity = Buffer.from(newRecord.validity);
-      // TODO: derive ipnsId from pubkey
+
+      const ipnsId = multihashing.multihash.toB58String(multihashing(newRecord.pubKey, 'sha2-256'));
 
       if (!ipnsMap[ipnsId] || newRecord.sequence > ipnsMap[ipnsId].sequence) {
         // the new record is more recent
@@ -925,7 +928,10 @@ class GravityProtocol {
             if (err) { reject(err); } else { resolve(pk); }
           });
         });
-        console.log(pubKey);
+        if (pubKey === 'dummy') {
+          console.warn("public key wasn't attached to record")
+          return
+        }
 
         try {
           await new Promise((resolve, reject) => {
@@ -969,7 +975,7 @@ class GravityProtocol {
         await sleep(timeout);
       }
 
-      return `/ipfs/${ipnsMap[ipnsId].value}`;
+      return ipnsMap[ipnsId].value;
     };
 
     node.on('ready', async () => {
@@ -987,6 +993,10 @@ class GravityProtocol {
       // the other half of the IPNS setup
       // ingests get and post requests for IPNS records, responding to gets
       node.libp2p.handle('/gravity/0.0.1', (protocolName, connection) => {
+        // this protocol, used here and in this.sendToPeer, has two possible message:
+        // `g ${ipns ID}` - "please send me your best record for this ID (user)"
+        // `p ${ipns record}` - any IPNS record (you're responsible for interpreting and validating)
+        //      ^ that record is the libsodium base64 encoding of the libp2p protobuf
         pull(
           connection,
           pull.asyncMap(async (data, cb) => {
@@ -994,7 +1004,7 @@ class GravityProtocol {
             const split = data.toString().split(/\s+/);
 
             if (split[0] === 'p') { // post
-              this.updateIpnsRecord(split[1], split[2]);
+              this.updateIpnsRecord(split[1]);
             } else if (split[0] === 'g') { // it's a get, need to respond
               // TODO: responding blindly reveals who we're friends with (by what's in the cache).
               //  maybe don't respond to all of them
@@ -1003,7 +1013,7 @@ class GravityProtocol {
                 await this.publishProfile([]);
               }
               if (split[1] in ipnsMap) {
-                return cb(null, `p ${split[1]} ${ipns.marshal(sodium.to_base64(ipnsMap[split[1]]))}`);
+                return cb(null, `p ${sodium.to_base64(ipns.marshal(ipnsMap[split[1]]))}`);
               }
             }
 
