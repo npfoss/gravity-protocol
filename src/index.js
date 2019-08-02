@@ -137,6 +137,12 @@ function uuidv4() {
 }
 /* eslint-enable */
 
+// async filtering, courtesy of https://stackoverflow.com/a/46842181/7343159
+async function filter(arr, callback) {
+  const fail = Symbol()
+  return (await Promise.all(arr.map(async item => (await callback(item)) ? item : fail))).filter(i=>i!==fail)
+}
+
 
 //*  the protocol
 class GravityProtocol {
@@ -493,10 +499,30 @@ class GravityProtocol {
       return sodium.to_base64(salt);
     };
 
-    this.getGroupList = async () => {
+    // gets the list of groups you're in
+    this.getGroupList = async (publicKey='me') => {
+      await this.ipfsReady();
+      await this.sodiumReady();
+
       try {
-        return await node.files.ls('/groups')
-          .then(flist => flist.map(f => f.name));
+        if (publicKey === 'me') {
+          return await node.files.ls('/groups')
+            .then(flist => flist.map(f => f.name));
+        }
+
+        const friendPath = await this.lookupProfileHash(publicKey);
+        const key = this.testDecryptAllSubscribers(friendPath);
+
+        const groups = await node.ls(`${friendPath}/groups`)
+            .then(flist => flist.map(f => f.name));
+
+        return filter(groups, async g => {
+          // check if there's a folder corresponding to your shared key
+          const files = node.ls(`${friendPath}/groups/${g}`)
+              .then(flist => flist.map(f => f.name));
+          const salt = sodium.from_base64(g);
+          return (await files).includes(hashfunc(uintConcat(salt, await key)));
+        });
       } catch (err) {
         if (err.message.includes('exist')) {
           console.log('Got this error in getGroupList but it probably means the folder doesn\'t exist');
