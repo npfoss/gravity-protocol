@@ -363,24 +363,6 @@ class GravityProtocol {
       return sodium.from_base64(await returnSuccessful(promises));
     };
 
-    /*
-    // translates public keys into IPNS and p2p-circuit compatible IDs
-    // turns out to be very nontrivial...
-    //  if libp2p-crypto gets their act together something like this should do it
-    this.pubkeyToID = async (publicKey) => {
-      await this.ipfsReady();
-
-      console.log(publicKey)
-      const key1 = await libp2pcrypto.keys.import(publicKey)
-      // const key1 = await node.key.import('temp', publicKey, '')
-      console.log(key1)
-      const protobufKey = libp2pcrypto.keys.marshalPublicKey(publicKey, 'rsa');
-      console.log(protobufKey)
-
-      return multihashing.multihash.toB58String(multihashing(protobufKey, 'sha2-256'));
-    };
-    */
-
     // returns the group key for the given group
     // no 'this' because I'm trying to make it harder to accidentally mishandle keys
     const getGroupKey = async (groupSalt) => {
