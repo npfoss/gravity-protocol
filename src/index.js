@@ -955,6 +955,8 @@ class GravityProtocol {
           this.sendToPeer(addr, `g ${ipnsId}`);
         });
 
+        // TODO: there's a way better way to do this with promises.
+        //  have sendPeer resolve on a response and wait for any response (or settimeout to resolve)
         await sleep(timeout);
       }
 
