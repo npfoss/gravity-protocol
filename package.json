@@ -1,6 +1,6 @@
 {
   "name": "gravity-protocol",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "description": "Sample implementation of the protocol underlying the Gravity social network.",
   "main": "src/index.js",
   "scripts": {
@@ -17,7 +17,7 @@
   "bugs": {
     "url": "https://github.com/npfoss/gravity-protocol/issues"
   },
-  "homepage": "https://www.gravtiynet.io",
+  "homepage": "https://www.gravitynet.io",
   "dependencies": {
     "buffer": "^5.2.1",
     "ipfs": "^0.37.0",
