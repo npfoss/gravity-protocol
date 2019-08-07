@@ -60,10 +60,6 @@ const base64toURL = s => s.replace(/[+/=]+/g, c => toURL64replacements[c]);
 const URLtoBase64 = s => `${s.replace(/[._-]+/g, c => fromURL64replacements[c])}=`;
 /* eslint-enable */
 
-// read/write file from MFS. making it a util so it's abstracted away and be changed later
-// returns promise
-const readFile = (ipfs, path) => ipfs.files.read(path);
-
 // TODO: might need to use locks
 const writeFile = (ipfs, path, data) => // eslint-disable-next-line implicit-arrow-linebreak
   ipfs.files.write(path, Buffer.from(data), { parents: true, create: true, truncate: true });
@@ -156,6 +152,53 @@ class GravityProtocol {
     // must be kept in sync with what's stored in the profile
     // duplicated here and there^ for fast lookup (so you don't need to decrypt every time)
     const ipnsMap = {};
+
+    // needed because I override the way ipns resolves
+    // takes a /ipns/validID/whatever path and returns /ipfs/validHash/whatever
+    const resolveIpnsLink = async (path, cacheOnly = true) => {
+      const split = path.slice(6).split('/');
+      const id = split[0];
+      if (!cacheOnly || !(id in ipnsMap)) {
+        // TODO: will need to modify lookupProfileHash
+        throw Error('not implemented yet (resolveIpnsLink)');
+      }
+      // TODO: make recursive if the result is another ipns link? maybe
+      return `${ipnsMap[id].value}/${split.slice(1).join('/')}`;
+    };
+
+    // *** utils to handle basic ip[fn]s functions for any path ***
+    const cat = async (path) => {
+      await this.ipfsReady();
+
+      if (isIPFS.ipfsPath(path) || isIPFS.cid(path)) {
+        return node.cat(path);
+      }
+      if (/^\/ipns\//.test(path)) {
+        // it's an ipns link, need to resolve the ID
+        return cat(await resolveIpnsLink(path));
+      }
+      if (/^\//.test(path)) {
+        // last resort... maybe MFS path?
+        return node.files.read(path);
+      }
+      throw new Error('invalid path in cat');
+    };
+    const ls = async (path) => {
+      await this.ipfsReady();
+
+      if (isIPFS.ipfsPath(path) || isIPFS.cid(path)) {
+        return node.ls(path);
+      }
+      if (/^\/ipns\//.test(path)) {
+        // it's an ipns link, need to resolve the ID
+        return ls(await resolveIpnsLink(path));
+      }
+      if (/^\//.test(path)) {
+        // last resort... maybe MFS path?
+        return node.files.ls(path);
+      }
+      throw new Error('invalid path in ls');
+    };
 
     // for debugging
     this.getIpnsInfo = async () => {
@@ -279,10 +322,8 @@ class GravityProtocol {
     };
 
     this.getContacts = async () => {
-      await this.ipfsReady();
-
       const mkey = await this.getMasterKey();
-      return readFile(node, '/private/contacts.json.enc')
+      return cat('/private/contacts.json.enc')
         .then(async contacts => JSON.parse(await this.decrypt(mkey, contacts)))
         .catch((err) => {
           if (err.message.includes('exist')) {
@@ -351,10 +392,10 @@ class GravityProtocol {
       // eslint-disable-next-line no-underscore-dangle
       const privateKey = node._peerInfo.id._privKey._key;
 
-      const lst = await node.ls(`${path}/subscribers`);
+      const lst = await ls(`${path}/subscribers`);
 
       const promises = lst.map(async (obj) => {
-        const ciphertext = await node.cat(obj.hash);
+        const ciphertext = await cat(obj.hash);
 
         // RSA lib will err if key is wrong. this is good. it gets trapped in the promise correctly
         const res = (await decAsymm(privateKey, ciphertext)).toString();
@@ -375,35 +416,32 @@ class GravityProtocol {
     //    one idea: expose an encrypted copy of the key that I can just dec and use here?
     this.getGroupKey = async (groupSalt, publicKey = 'me') => {
       await this.sodiumReady();
-      await this.ipfsReady();
 
       let groupKeyBuf;
       if (publicKey === 'me') {
         const masterKey = await this.getMasterKey();
-        groupKeyBuf = this.decrypt(masterKey, await readFile(node, `/groups/${groupSalt}/me`));
+        groupKeyBuf = this.decrypt(masterKey, await cat(`/groups/${groupSalt}/me`));
       } else {
         const friendPath = await this.lookupProfileHash(publicKey);
         const key = await this.testDecryptAllSubscribers(friendPath);
 
         const salt = sodium.from_base64(groupSalt);
         const hash = hashfunc(uintConcat(salt, key));
-        groupKeyBuf = this.decrypt(key, await node.cat(`${friendPath}/groups/${groupSalt}/${hash}`));
+        groupKeyBuf = this.decrypt(key, await cat(`${friendPath}/groups/${groupSalt}/${hash}`));
       }
       return sodium.from_base64(JSON.parse((await groupKeyBuf).toString())[0]);
     };
 
     // returns the info JSON for the given group
     this.getGroupInfo = async (groupSalt, publicKey = 'me') => {
-      await this.ipfsReady();
-
       const groupKey = this.getGroupKey(groupSalt, publicKey);
       let enc;
       try {
         if (publicKey === 'me') {
-          enc = readFile(node, `/groups/${groupSalt}/info.json.enc`);
+          enc = cat(`/groups/${groupSalt}/info.json.enc`);
         } else {
           const friendPath = await this.lookupProfileHash(publicKey);
-          enc = node.cat(`${friendPath}/groups/${groupSalt}/info.json.enc`);
+          enc = cat(`${friendPath}/groups/${groupSalt}/info.json.enc`);
         }
       } catch (err) {
         if (err.message.includes('exist')) {
@@ -424,7 +462,7 @@ class GravityProtocol {
 
       // first make sure everyone is in the group
       const contacts = await this.getContacts();
-      const filenames = await node.files.ls(`/groups/${groupSalt}`)
+      const filenames = await ls(`/groups/${groupSalt}`)
         .then(flist => flist.map(f => f.name));
       const groupKey = await this.getGroupKey(groupSalt);
 
@@ -523,19 +561,19 @@ class GravityProtocol {
 
       try {
         if (publicKey === 'me') {
-          return await node.files.ls('/groups')
+          return await ls('/groups')
             .then(flist => flist.map(f => f.name));
         }
 
         const friendPath = await this.lookupProfileHash(publicKey);
         const key = this.testDecryptAllSubscribers(friendPath);
 
-        const groups = await node.ls(`${friendPath}/groups`)
+        const groups = await ls(`${friendPath}/groups`)
           .then(flist => flist.map(f => f.name));
 
         return filter(groups, async (g) => {
           // check if there's a folder corresponding to your shared key
-          const files = node.ls(`${friendPath}/groups/${g}`)
+          const files = ls(`${friendPath}/groups/${g}`)
             .then(flist => flist.map(f => f.name));
           const salt = sodium.from_base64(g);
           return (await files).includes(hashfunc(uintConcat(salt, await key)));
@@ -552,12 +590,10 @@ class GravityProtocol {
 
     // returns bio for the given group, or public.json if groupID === 'public'
     this.getBio = async (groupID) => {
-      await this.ipfsReady();
-
       let res;
       try {
         if (groupID === 'public') {
-          res = await readFile(node, '/bio/public.json')
+          res = await cat('/bio/public.json')
             .then(bio => JSON.parse(bio.toString()));
         } else {
           const groupKey = await this.getGroupKey(groupID).catch(() => {
@@ -565,9 +601,9 @@ class GravityProtocol {
             //  for the file just not existing yet
             throw new Error('[getBio] something is wrong with the groupID');
           });
-          const salt = await readFile(node, '/bio/salt');
+          const salt = await cat('/bio/salt');
           const filename = hashfunc(uintConcat(salt, groupKey));
-          res = await readFile(node, `/bio/${filename}.json.enc`)
+          res = await cat(`/bio/${filename}.json.enc`)
             .then(async bio => JSON.parse(await this.decrypt(groupKey, bio)));
         }
       } catch (err) {
@@ -592,7 +628,7 @@ class GravityProtocol {
 
       let salt;
       try {
-        salt = await readFile(node, '/bio/salt');
+        salt = await cat('/bio/salt');
       } catch (err) {
         if (err.message.includes('exist')) {
           console.log('got this error in setBio so making new salt');
@@ -715,7 +751,7 @@ class GravityProtocol {
       await node.files.mkdir(path, { parents: true });
       let salt;
       try {
-        salt = await readFile(node, `${path}/salt`);
+        salt = await cat(`${path}/salt`);
       } catch (err) {
         if (err.message.includes('exist')) {
           console.log("got this error in setupPostMetadata but it probably just means there's no salt yet");
@@ -1021,21 +1057,19 @@ class GravityProtocol {
     // note that it takes the true group secret key, not the group salt/name
     // salt in this case is for the posts, and may be different at different levels of recusion
     this.getPostLinks = async (groupKey, path, salt_ = undefined) => {
-      await this.ipfsReady();
-
       let salt = salt_;
-      const files = await node.ls(path)
+      const files = await ls(path)
         .then(flist => flist.map(f => f.name));
       let postList = [];
       if (files.includes('salt')) {
-        salt = await readFile(node, `${path}/salt`);
+        salt = await cat(`${path}/salt`);
       }
       if (salt !== undefined) {
         // see if there are any posts for this group in there
         const name = hashfunc(uintConcat(salt, groupKey));
         if (files.includes(name)) {
           // a folder for this group! return a list of all the post dirs
-          const posts = await node.ls(`${path}/${name}`)
+          const posts = await ls(`${path}/${name}`)
             .then(flist => flist.map(f => f.name));
           postList = postList.concat(posts.map(p => `${path}/${name}/${p}`));
         }
@@ -1048,9 +1082,14 @@ class GravityProtocol {
       return postList;
     };
 
-    this.getAllPostLinks = async (groupSalt, publicKey = 'me') => {
+    this.getAllPostLinks = async (groupSalt, publicKey_ = 'me') => {
+      const publicKey = this.toStandardPublicKeyFormat(publicKey_);
+      await this.lookupProfileHash(publicKey);
+
       const groupKey = this.getGroupKey(groupSalt, publicKey);
-      const path = `${await this.lookupProfileHash(publicKey)}/posts`;
+      const contacts = await this.getContacts();
+      const ipnsId = contacts[publicKey].id;
+      const path = `/ipns/${ipnsId}/posts`;
 
       return this.getPostLinks(await groupKey, path);
     };
