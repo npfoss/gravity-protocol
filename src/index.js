@@ -371,23 +371,38 @@ class GravityProtocol {
 
     // returns the group key for the given group
     // no 'this' because I'm trying to make it harder to accidentally mishandle keys
-    const getGroupKey = async (groupSalt) => {
+    const getGroupKey = async (groupSalt, publicKey = 'me') => {
       await this.sodiumReady();
       await this.ipfsReady();
 
-      const masterKey = await this.getMasterKey();
-      const groupKeyBuf = await this.decrypt(masterKey, await readFile(node, `/groups/${groupSalt}/me`));
-      return sodium.from_base64(JSON.parse(groupKeyBuf.toString())[0]);
+      let groupKeyBuf;
+      if (publicKey === 'me') {
+        const masterKey = await this.getMasterKey();
+        groupKeyBuf = this.decrypt(masterKey, await readFile(node, `/groups/${groupSalt}/me`));
+      } else {
+        const friendPath = await this.lookupProfileHash(publicKey);
+        const key = await this.testDecryptAllSubscribers(friendPath);
+
+        const salt = sodium.from_base64(groupSalt);
+        const hash = hashfunc(uintConcat(salt, key));
+        groupKeyBuf = this.decrypt(key, await node.cat(`${friendPath}/groups/${groupSalt}/${hash}`));
+      }
+      return sodium.from_base64(JSON.parse((await groupKeyBuf).toString())[0]);
     };
 
     // returns the info JSON for the given group
-    this.getGroupInfo = async (groupSalt) => {
+    this.getGroupInfo = async (groupSalt, publicKey = 'me') => {
       await this.ipfsReady();
 
-      const groupKey = await getGroupKey(groupSalt);
+      const groupKey = getGroupKey(groupSalt, publicKey);
       let enc;
       try {
-        enc = await readFile(node, `/groups/${groupSalt}/info.json.enc`);
+        if (publicKey === 'me') {
+          enc = readFile(node, `/groups/${groupSalt}/info.json.enc`);
+        } else {
+          const friendPath = await this.lookupProfileHash(publicKey);
+          enc = node.cat(`${friendPath}/groups/${groupSalt}/info.json.enc`);
+        }
       } catch (err) {
         if (err.message.includes('exist')) {
           console.log('Got this error in getGroupInfo but it probably just means there was no group info:');
@@ -396,7 +411,7 @@ class GravityProtocol {
         }
         throw err;
       }
-      return JSON.parse(await this.decrypt(groupKey, enc));
+      return JSON.parse(await this.decrypt(await groupKey, await enc));
     };
 
     // takes an object mapping public keys to nicknames (so you can do many at once)
