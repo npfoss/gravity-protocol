@@ -159,8 +159,7 @@ class GravityProtocol {
       const split = path.slice(6).split('/');
       const id = split[0];
       if (!cacheOnly || !(id in ipnsMap)) {
-        // TODO: will need to modify lookupProfileHash
-        throw Error('not implemented yet (resolveIpnsLink)');
+        await this.lookupProfileHash({ ipnsId: id });
       }
       // TODO: make recursive if the result is another ipns link? maybe
       return `${ipnsMap[id].value}/${split.slice(1).join('/')}`;
@@ -422,7 +421,7 @@ class GravityProtocol {
         const masterKey = await this.getMasterKey();
         groupKeyBuf = this.decrypt(masterKey, await cat(`/groups/${groupSalt}/me`));
       } else {
-        const friendPath = await this.lookupProfileHash(publicKey);
+        const friendPath = await this.lookupProfileHash({ publicKey });
         const key = await this.testDecryptAllSubscribers(friendPath);
 
         const salt = sodium.from_base64(groupSalt);
@@ -440,7 +439,7 @@ class GravityProtocol {
         if (publicKey === 'me') {
           enc = cat(`/groups/${groupSalt}/info.json.enc`);
         } else {
-          const friendPath = await this.lookupProfileHash(publicKey);
+          const friendPath = await this.lookupProfileHash({ publicKey });
           enc = cat(`${friendPath}/groups/${groupSalt}/info.json.enc`);
         }
       } catch (err) {
@@ -565,7 +564,7 @@ class GravityProtocol {
             .then(flist => flist.map(f => f.name));
         }
 
-        const friendPath = await this.lookupProfileHash(publicKey);
+        const friendPath = await this.lookupProfileHash({ publicKey });
         const key = this.testDecryptAllSubscribers(friendPath);
 
         const groups = await ls(`${friendPath}/groups`)
@@ -1016,16 +1015,30 @@ class GravityProtocol {
 
     // returns the most recent top level hash of the profile associated with the given public key
     // will query peers for most up to date value if timeout is nonzero, otherwise pulls from cache
-    this.lookupProfileHash = async (publicKey_, timeout = 2000) => {
+    // needs either an IPNS ID or a public key. will prefer IPNS ID if both are given
+    this.lookupProfileHash = async ({
+      publicKey: publicKey_,
+      ipnsId: ipnsId_,
+      timeout = 1000,
+    } = {}) => {
       if (publicKey_ === 'me') {
         return `/ipfs/${await this.getMyProfileHash()}`;
       }
 
-      const publicKey = this.toStandardPublicKeyFormat(publicKey_);
-      const contacts = await this.getContacts();
-      const ipnsId = contacts[publicKey].id;
+      let ipnsId;
+      let contacts;
+      if (ipnsId_ !== undefined && isIPFS.cid(ipnsId_)) {
+        ipnsId = ipnsId_;
+      } else {
+        const publicKey = this.toStandardPublicKeyFormat(publicKey_);
+        contacts = await this.getContacts();
+        ipnsId = contacts[publicKey].id;
+      }
 
       if (timeout) {
+        if (contacts === undefined) {
+          contacts = await this.getContacts();
+        }
         // TODO: this can be an interesting and complicated strategy
         //  for example, you could only ask people in a certain more trusted group
         //  or you could try a few people first, and then more if that fails
@@ -1048,7 +1061,7 @@ class GravityProtocol {
 
     this.getFriendKey = async (publicKey) => {
       // TODO: cache all of this, it shouldn't change often (if ever) and testDecrypt is slow
-      const path = await this.lookupProfileHash(publicKey);
+      const path = await this.lookupProfileHash({ publicKey });
       return this.testDecryptAllSubscribers(path);
     };
 
@@ -1084,7 +1097,7 @@ class GravityProtocol {
 
     this.getAllPostLinks = async (groupSalt, publicKey_ = 'me') => {
       const publicKey = this.toStandardPublicKeyFormat(publicKey_);
-      await this.lookupProfileHash(publicKey);
+      await this.lookupProfileHash({ publicKey });
 
       const groupKey = this.getGroupKey(groupSalt, publicKey);
       const contacts = await this.getContacts();
