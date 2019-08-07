@@ -20,7 +20,7 @@
   "homepage": "https://www.gravtiynet.io",
   "dependencies": {
     "buffer": "^5.2.1",
-    "ipfs": "^0.37.0-rc.0",
+    "ipfs": "^0.37.0",
     "ipns": "~0.5.2",
     "js-cookie": "^2.2.0",
     "libsodium-wrappers": "^0.7.4",
