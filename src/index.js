@@ -370,8 +370,10 @@ class GravityProtocol {
     };
 
     // returns the group key for the given group
-    // no 'this' because I'm trying to make it harder to accidentally mishandle keys
-    const getGroupKey = async (groupSalt, publicKey = 'me') => {
+    // TODO: no 'this' to make it harder to accidentally mishandle keys
+    //    nontrivial because you need it for client-side lazy loading of post data
+    //    one idea: expose an encrypted copy of the key that I can just dec and use here?
+    this.getGroupKey = async (groupSalt, publicKey = 'me') => {
       await this.sodiumReady();
       await this.ipfsReady();
 
@@ -394,7 +396,7 @@ class GravityProtocol {
     this.getGroupInfo = async (groupSalt, publicKey = 'me') => {
       await this.ipfsReady();
 
-      const groupKey = getGroupKey(groupSalt, publicKey);
+      const groupKey = this.getGroupKey(groupSalt, publicKey);
       let enc;
       try {
         if (publicKey === 'me') {
@@ -424,7 +426,7 @@ class GravityProtocol {
       const contacts = await this.getContacts();
       const filenames = await node.files.ls(`/groups/${groupSalt}`)
         .then(flist => flist.map(f => f.name));
-      const groupKey = await getGroupKey(groupSalt);
+      const groupKey = await this.getGroupKey(groupSalt);
 
       const myPublicKey = await this.getPublicKey();
       const missing = Object.keys(publicKeyToName).filter((pk) => {
@@ -558,7 +560,7 @@ class GravityProtocol {
           res = await readFile(node, '/bio/public.json')
             .then(bio => JSON.parse(bio.toString()));
         } else {
-          const groupKey = await getGroupKey(groupID).catch(() => {
+          const groupKey = await this.getGroupKey(groupID).catch(() => {
             // here so we don't mistake an issue with the given groupID
             //  for the file just not existing yet
             throw new Error('[getBio] something is wrong with the groupID');
@@ -605,7 +607,7 @@ class GravityProtocol {
       let data = JSON.stringify(bio);
       let filename = 'public.json';
       if (groupID !== 'public') {
-        const groupKey = await getGroupKey(groupID);
+        const groupKey = await this.getGroupKey(groupID);
         data = await this.encrypt(groupKey, data);
         filename = `${hashfunc(uintConcat(salt, groupKey))}.json.enc`;
       }
@@ -694,7 +696,7 @@ class GravityProtocol {
 
       let groupKey;
       try {
-        groupKey = await getGroupKey(groupSalt);
+        groupKey = await this.getGroupKey(groupSalt);
       } catch (err) {
         throw new Error(`Got the following error while getting group key for post: ${err}`);
       }
@@ -771,7 +773,7 @@ class GravityProtocol {
 
       const path = this.setupPostMetadata(groupSalt, parents, tags);
 
-      const groupKey = await getGroupKey(groupSalt);
+      const groupKey = await this.getGroupKey(groupSalt);
       const contentEnc = await this.encrypt(groupKey, text);
       await writeFile(node, `${await path}/main.txt.enc`, contentEnc);
       return path;
@@ -794,7 +796,7 @@ class GravityProtocol {
 
       const path = this.setupPostMetadata(groupSalt, parents);
 
-      const groupKey = await getGroupKey(groupSalt);
+      const groupKey = await this.getGroupKey(groupSalt);
       const contentEnc = this.encrypt(groupKey, link);
       // note: .lenc is a new file type, for encrypted ipfs links
       //  use sparingly, because it won't be pinned with the profile
@@ -817,7 +819,7 @@ class GravityProtocol {
         console.warn('Filtered out illegal label chars in createNewReact');
       }
 
-      const groupKey = getGroupKey(groupSalt);
+      const groupKey = this.getGroupKey(groupSalt);
       // used twice, for different non-cryptographic things so it's ok
       const randomString = sodium.to_base64(sodium.randombytes_buf(10));
 
@@ -979,6 +981,10 @@ class GravityProtocol {
     // returns the most recent top level hash of the profile associated with the given public key
     // will query peers for most up to date value if timeout is nonzero, otherwise pulls from cache
     this.lookupProfileHash = async (publicKey_, timeout = 2000) => {
+      if (publicKey_ === 'me') {
+        return `/ipfs/${await this.getMyProfileHash()}`;
+      }
+
       const publicKey = this.toStandardPublicKeyFormat(publicKey_);
       const contacts = await this.getContacts();
       const ipnsId = contacts[publicKey].id;
@@ -1008,6 +1014,45 @@ class GravityProtocol {
       // TODO: cache all of this, it shouldn't change often (if ever) and testDecrypt is slow
       const path = await this.lookupProfileHash(publicKey);
       return this.testDecryptAllSubscribers(path);
+    };
+
+    // recursively gets links to all the posts for the given group, starting at `path`
+    //    returning just the links is more useful because you can then resolve/load them lazily
+    // note that it takes the true group secret key, not the group salt/name
+    // salt in this case is for the posts, and may be different at different levels of recusion
+    this.getPostLinks = async (groupKey, path, salt_ = undefined) => {
+      await this.ipfsReady();
+
+      let salt = salt_;
+      const files = await node.ls(path)
+        .then(flist => flist.map(f => f.name));
+      let postList = [];
+      if (files.includes('salt')) {
+        salt = await readFile(node, `${path}/salt`);
+      }
+      if (salt !== undefined) {
+        // see if there are any posts for this group in there
+        const name = hashfunc(uintConcat(salt, groupKey));
+        if (files.includes(name)) {
+          // a folder for this group! return a list of all the post dirs
+          const posts = await node.ls(`${path}/${name}`)
+            .then(flist => flist.map(f => f.name));
+          postList = postList.concat(posts.map(p => `${path}/${name}/${p}`));
+        }
+      }
+      // also try recursing deeper, but proactively ignore folders that definitely aren't dates
+      const dirsToTry = files.filter(f => /^\d+$/g.test(f));
+      const promises = dirsToTry.map(d => this.getPostLinks(groupKey, `${path}/${d}`, salt));
+      postList = postList.concat((await Promise.all(promises)).flat());
+
+      return postList;
+    };
+
+    this.getAllPostLinks = async (groupSalt, publicKey = 'me') => {
+      const groupKey = this.getGroupKey(groupSalt, publicKey);
+      const path = `${await this.lookupProfileHash(publicKey)}/posts`;
+
+      return this.getPostLinks(await groupKey, path);
     };
 
     node.on('ready', async () => {
