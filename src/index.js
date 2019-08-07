@@ -720,10 +720,11 @@ class GravityProtocol {
       if (tags !== undefined && tags.some(t => typeof t !== 'string')) {
         throw new Error('tags passed to setupPostMetadata must be strings');
       }
-      /* TODO: validate parent paths
-          - [x] bare minimum is valid ipfs or ipns path (starting with the '/ip[fn]s/')
-          - [ ] ideally the path to a post in some profile--
+      /* validate parent paths
+          bare minimum is valid ipfs or ipns path (starting with '/ip[fn]s/')
+          ideally the path to a post in some profile--
               should be of the form: /ipns/id-of-author/posts/year/month/day/group-secret-salt-hash
+            but it could be useful to reply to arbitrary ipfs content so that's not enforced
       */
       if (parents !== undefined && parents.some(p => !isIPFS.path(p))) {
         throw new Error('invalid parents passed to setupPostMetadata');
