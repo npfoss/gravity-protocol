@@ -1108,6 +1108,23 @@ class GravityProtocol {
       return this.getPostLinks(await groupKey, path);
     };
 
+    this.readPostMetadata = async (groupKey, path) =>
+    // eslint-disable-next-line implicit-arrow-linebreak
+      JSON.parse(await this.decrypt(groupKey, await cat(`${path}/meta.json.enc`)));
+
+    this.readPostData = async (groupKey, path) => {
+      const files = await ls(path)
+        .then(flist => flist.map(f => f.name).filter(f => !/^meta\.json/.test(f)));
+      const mainName = files.filter(f => /^main\./.test(f))[0];
+      if (mainName === undefined) {
+        return undefined;
+      }
+      if (!['main.txt.enc'].includes(mainName)) {
+        throw new Error('can\'t read post data, unsupported file type');
+      }
+      return (await this.decrypt(groupKey, await cat(`${path}/${mainName}`))).toString();
+    };
+
     node.on('ready', async () => {
       // node.files.rm('/posts', { recursive: true }).catch(() => {});
       // node.files.rm('/bio', { recursive: true }).catch(() => {});
