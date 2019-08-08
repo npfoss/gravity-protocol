@@ -1,6 +1,6 @@
 {
   "name": "gravity-protocol",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "description": "Sample implementation of the protocol underlying the Gravity social network.",
   "main": "src/index.js",
   "scripts": {
