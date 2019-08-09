@@ -940,7 +940,7 @@ class GravityProtocol {
         if (contacts[key].addresses) {
           contacts[key].addresses.forEach((addr) => {
             this.connectToAddr(addr)
-              .catch(err => console.log(err));
+              .catch(err => console.log(err.message));
           });
         }
       });
