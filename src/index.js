@@ -1097,14 +1097,20 @@ class GravityProtocol {
     };
 
     this.getAllPostLinks = async (groupSalt, publicKey_ = 'me') => {
-      const publicKey = this.toStandardPublicKeyFormat(publicKey_);
-      await this.lookupProfileHash({ publicKey });
+      let groupKey;
+      let path;
+      if (publicKey_ === 'me') {
+        groupKey = this.getGroupKey(groupSalt, 'me');
+        path = '/posts';
+      } else {
+        const publicKey = this.toStandardPublicKeyFormat(publicKey_);
+        await this.lookupProfileHash({ publicKey });
 
-      const groupKey = this.getGroupKey(groupSalt, publicKey);
-      const contacts = await this.getContacts();
-      const ipnsId = contacts[publicKey].id;
-      const path = `/ipns/${ipnsId}/posts`;
-
+        groupKey = this.getGroupKey(groupSalt, publicKey);
+        const contacts = await this.getContacts();
+        const ipnsId = contacts[publicKey].id;
+        path = `/ipns/${ipnsId}/posts`;
+      }
       return this.getPostLinks(await groupKey, path);
     };
 
