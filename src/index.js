@@ -158,11 +158,14 @@ class GravityProtocol {
     const resolveIpnsLink = async (path, cacheOnly = true) => {
       const split = path.slice(6).split('/');
       const id = split[0];
-      if (!cacheOnly || !(id in ipnsMap)) {
-        await this.lookupProfileHash({ ipnsId: id });
+      let base;
+      if (!cacheOnly || !(id in ipnsMap) || id === (await this.getNodeInfo()).id) {
+        base = await this.lookupProfileHash({ ipnsId: id });
+      } else {
+        base = ipnsMap[id].value;
       }
       // TODO: make recursive if the result is another ipns link? maybe
-      return `${ipnsMap[id].value}/${split.slice(1).join('/')}`;
+      return `${base}/${split.slice(1).join('/')}`;
     };
 
     // *** utils to handle basic ip[fn]s functions for any path ***
@@ -180,7 +183,7 @@ class GravityProtocol {
         // last resort... maybe MFS path?
         return node.files.read(path);
       }
-      throw new Error('invalid path in cat');
+      throw new Error(`invalid path in cat: ${path}`);
     };
     const ls = async (path) => {
       await this.ipfsReady();
@@ -709,6 +712,8 @@ class GravityProtocol {
     // this function returns the path to put the post content at
     // this function also does not push the update to IPNS,
     //    that responsibilty lies with the caller as well
+    // CAUTION: returned path is MFS (/posts/...), not a true path (/ipns/myId/posts/...)
+    //    DO NOT USE THIS PATH except to write stuff into the folder
     this.setupPostMetadata = async (groupSalt, /* optional  */ parents, tags) => {
       await this.sodiumReady();
       await this.ipfsReady();
@@ -812,7 +817,7 @@ class GravityProtocol {
       const groupKey = await this.getGroupKey(groupSalt);
       const contentEnc = await this.encrypt(groupKey, text);
       await writeFile(node, `${await path}/main.txt.enc`, contentEnc);
-      return path;
+      return `/ipns/${(await this.getNodeInfo()).id}/${path}`;
     };
 
     // for posting reacts
@@ -837,7 +842,7 @@ class GravityProtocol {
       // note: .lenc is a new file type, for encrypted ipfs links
       //  use sparingly, because it won't be pinned with the profile
       await writeFile(node, `${await path}/main.lenc`, await contentEnc);
-      return path;
+      return `/ipns/${(await this.getNodeInfo()).id}/${path}`;
     };
 
     // label is how people will refer to it (e.g. :facepalm-7:)
@@ -1025,7 +1030,7 @@ class GravityProtocol {
       ipnsId: ipnsId_,
       timeout = 1000,
     } = {}) => {
-      if (publicKey_ === 'me') {
+      if (publicKey_ === 'me' || ipnsId_ === (await this.getNodeInfo()).id) {
         return `/ipfs/${await this.getMyProfileHash()}`;
       }
 
@@ -1101,19 +1106,19 @@ class GravityProtocol {
 
     this.getAllPostLinks = async (groupSalt, publicKey_ = 'me') => {
       let groupKey;
-      let path;
+      let ipnsId;
       if (publicKey_ === 'me') {
         groupKey = this.getGroupKey(groupSalt, 'me');
-        path = '/posts';
+        ipnsId = (await this.getNodeInfo()).id;
       } else {
         const publicKey = this.toStandardPublicKeyFormat(publicKey_);
         await this.lookupProfileHash({ publicKey });
 
         groupKey = this.getGroupKey(groupSalt, publicKey);
         const contacts = await this.getContacts();
-        const ipnsId = contacts[publicKey].id;
-        path = `/ipns/${ipnsId}/posts`;
+        ipnsId = contacts[publicKey].id;
       }
+      const path = `/ipns/${ipnsId}/posts`;
       return this.getPostLinks(await groupKey, path);
     };
 
