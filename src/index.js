@@ -950,8 +950,11 @@ class GravityProtocol {
     this.sendToPeer = async (addr, message) => {
       await this.ipfsReady();
 
-      // TODO: keep one connection open and reuse it like so:
-      //  https://github.com/libp2p/js-libp2p/blob/master/examples/chat/src/dialer.js
+      /* TODO: keep one connection open and reuse it like so:
+          https://github.com/libp2p/js-libp2p/blob/master/examples/chat/src/dialer.js
+          - don't forget to handle connections opening/closing randomly even if peers still online
+            (https://github.com/ipfs/js-ipfs/issues/2288)
+      */
       node.libp2p.dialProtocol(addr, '/gravity/0.0.1', (err, conn) => {
         if (err) {
           throw err;
