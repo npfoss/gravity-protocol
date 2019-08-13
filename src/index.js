@@ -933,7 +933,6 @@ class GravityProtocol {
 
       // TODO: find a better way of indicating success or failure
       await sleep(2000);
-      return
     };
 
     // sends message to the specified peer address
