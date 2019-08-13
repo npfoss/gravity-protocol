@@ -237,7 +237,12 @@ class GravityProtocol {
     // returns this instance's public key
     this.getPublicKey = async () => (await this.getNodeInfo()).publicKey;
 
-    this.pubkeyToIpnsId = pk => multihashing.multihash.toB58String(multihashing(pk, 'sha2-256'));
+    this.pubkeyToIpnsId = (pk) => {
+      if (typeof pk === 'string' || pk instanceof String) {
+        return multihashing.multihash.toB58String(multihashing(Buffer.from(pk, 'base64'), 'sha2-256'));
+      }
+      return multihashing.multihash.toB58String(multihashing(pk, 'sha2-256'));
+    };
 
     this.loadDirs = async (path) => {
       await this.ipfsReady();
@@ -389,11 +394,11 @@ class GravityProtocol {
     // TODO: no 'this' to make it harder to accidentally mishandle keys
     //    nontrivial because you need it for client-side lazy loading of post data
     //    one idea: expose an encrypted copy of the key that I can just dec and use here?
-    this.getGroupKey = async (groupSalt, publicKey = 'me') => {
+    this.getGroupKey = async (publicKey, groupSalt) => {
       await this.sodiumReady();
 
       let groupKeyBuf;
-      if (publicKey === 'me') {
+      if (publicKey === await this.getPublicKey()) {
         const masterKey = await this.getMasterKey();
         groupKeyBuf = this.decrypt(masterKey, await cat(`/groups/${groupSalt}/me`));
       } else {
@@ -408,11 +413,11 @@ class GravityProtocol {
     };
 
     // returns the info JSON for the given group
-    this.getGroupInfo = async (groupSalt, publicKey = 'me') => {
-      const groupKey = this.getGroupKey(groupSalt, publicKey);
+    this.getGroupInfo = async (publicKey, groupSalt) => {
+      const groupKey = this.getGroupKey(publicKey, groupSalt);
       let enc;
       try {
-        if (publicKey === 'me') {
+        if (publicKey === await this.getPublicKey()) {
           enc = cat(`/groups/${groupSalt}/info.json.enc`);
         } else {
           const friendPath = await this.lookupProfileHash({ publicKey });
@@ -439,7 +444,7 @@ class GravityProtocol {
       const contacts = await this.getContacts();
       const filenames = await ls(`/groups/${groupSalt}`)
         .then(flist => flist.map(f => f.name));
-      const groupKey = await this.getGroupKey(groupSalt);
+      const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
 
       const myPublicKey = await this.getPublicKey();
       const missing = Object.keys(publicKeyToName).filter((pk) => {
@@ -458,7 +463,7 @@ class GravityProtocol {
       }
 
       // now we can finally set the nicknames
-      const groupInfo = await this.getGroupInfo(groupSalt);
+      const groupInfo = await this.getGroupInfo(await this.getPublicKey(), groupSalt);
       if (groupInfo.members === undefined) {
         groupInfo.members = {};
       }
@@ -530,12 +535,12 @@ class GravityProtocol {
     };
 
     // gets the list of groups you're in
-    this.getGroupList = async (publicKey = 'me') => {
+    this.getGroupList = async (publicKey) => {
       await this.ipfsReady();
       await this.sodiumReady();
 
       try {
-        if (publicKey === 'me') {
+        if (publicKey === await this.getPublicKey()) {
           return await ls('/groups')
             .then(flist => flist.map(f => f.name));
         }
@@ -565,13 +570,14 @@ class GravityProtocol {
 
     // returns bio for the given group, or public.json if groupID === 'public'
     this.getBio = async (groupID) => {
+      const publicKey = await this.getPublicKey();
       let res;
       try {
         if (groupID === 'public') {
           res = await cat('/bio/public.json')
             .then(bio => JSON.parse(bio.toString()));
         } else {
-          const groupKey = await this.getGroupKey(groupID).catch(() => {
+          const groupKey = await this.getGroupKey(publicKey, groupID).catch(() => {
             // here so we don't mistake an issue with the given groupID
             //  for the file just not existing yet
             throw new Error('[getBio] something is wrong with the groupID');
@@ -618,7 +624,7 @@ class GravityProtocol {
       let data = JSON.stringify(bio);
       let filename = 'public.json';
       if (groupID !== 'public') {
-        const groupKey = await this.getGroupKey(groupID);
+        const groupKey = await this.getGroupKey(await this.getPublicKey(), groupID);
         data = await this.encrypt(groupKey, data);
         filename = `${hashfunc(uintConcat(salt, groupKey))}.json.enc`;
       }
@@ -632,10 +638,6 @@ class GravityProtocol {
       await this.sodiumReady();
 
       const info = await this.getNodeInfo();
-      // sanity check
-      if (info.id !== this.pubkeyToIpnsId(info.publicKey)) {
-        throw new Error('WARNING pubkeyToIpnsId IS OUT OF DATE');
-      }
       const myIpnsId = info.id;
       const privateKey = node._peerInfo.id._privKey; // eslint-disable-line no-underscore-dangle
       const publicKey = node._peerInfo.id._pubKey; // eslint-disable-line no-underscore-dangle
@@ -714,7 +716,7 @@ class GravityProtocol {
 
       let groupKey;
       try {
-        groupKey = await this.getGroupKey(groupSalt);
+        groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
       } catch (err) {
         throw new Error(`Got the following error while getting group key for post: ${err}`);
       }
@@ -791,7 +793,7 @@ class GravityProtocol {
 
       const path = this.setupPostMetadata(groupSalt, parents, tags);
 
-      const groupKey = await this.getGroupKey(groupSalt);
+      const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
       const contentEnc = await this.encrypt(groupKey, text);
       await writeFile(node, `${await path}/main.txt.enc`, contentEnc);
       return `/ipns/${(await this.getNodeInfo()).id}/${path}`;
@@ -814,7 +816,7 @@ class GravityProtocol {
 
       const path = this.setupPostMetadata(groupSalt, parents);
 
-      const groupKey = await this.getGroupKey(groupSalt);
+      const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
       const contentEnc = this.encrypt(groupKey, link);
       // note: .lenc is a new file type, for encrypted ipfs links
       //  use sparingly, because it won't be pinned with the profile
@@ -837,7 +839,7 @@ class GravityProtocol {
         console.warn('Filtered out illegal label chars in createNewReact');
       }
 
-      const groupKey = this.getGroupKey(groupSalt);
+      const groupKey = this.getGroupKey(await this.getPublicKey(), groupSalt);
       // used twice, for different non-cryptographic things so it's ok
       const randomString = sodium.to_base64(sodium.randombytes_buf(10));
 
@@ -1005,7 +1007,7 @@ class GravityProtocol {
       ipnsId: ipnsId_,
       timeout = 1000,
     } = {}) => {
-      if (publicKey === 'me' || ipnsId_ === (await this.getNodeInfo()).id) {
+      if (publicKey === await this.getPublicKey() || ipnsId_ === (await this.getNodeInfo()).id) {
         return `/ipfs/${await this.getMyProfileHash()}`;
       }
 
@@ -1036,6 +1038,10 @@ class GravityProtocol {
         // TODO: there's a way better way to do this with promises.
         //  have sendPeer resolve on a response and wait for any response (or settimeout to resolve)
         await sleep(timeout);
+      }
+
+      if (ipnsMap[ipnsId] === undefined) {
+        throw new Error('could not find IPNS record before timeout :(');
       }
 
       return ipnsMap[ipnsId].value;
@@ -1077,16 +1083,14 @@ class GravityProtocol {
       return postList;
     };
 
-    this.getAllPostLinks = async (groupSalt, publicKey = 'me') => {
-      let groupKey;
+    this.getAllPostLinks = async (publicKey, groupSalt) => {
+      const groupKey = this.getGroupKey(publicKey, groupSalt);
       let ipnsId;
-      if (publicKey === 'me') {
-        groupKey = this.getGroupKey(groupSalt, 'me');
+      if (publicKey === await this.getPublicKey()) {
         ipnsId = (await this.getNodeInfo()).id;
       } else {
         await this.lookupProfileHash({ publicKey });
 
-        groupKey = this.getGroupKey(groupSalt, publicKey);
         ipnsId = this.pubkeyToIpnsId(publicKey);
       }
       const path = `/ipns/${ipnsId}/posts`;
@@ -1118,7 +1122,10 @@ class GravityProtocol {
       // node.files.rm('/private', { recursive: true }).catch(() => {});
 
       const myIpnsId = (await this.getNodeInfo()).id;
-      console.log(`my id: ${myIpnsId}`);
+      // sanity check
+      if (myIpnsId !== this.pubkeyToIpnsId(await this.getPublicKey())) {
+        throw new Error('WATCH OUT! pubkeyToIpnsId IS OUT OF DATE');
+      }
 
       await this.sodiumReady();
 
