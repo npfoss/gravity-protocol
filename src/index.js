@@ -237,6 +237,8 @@ class GravityProtocol {
     // returns this instance's public key
     this.getPublicKey = async () => (await this.getNodeInfo()).publicKey;
 
+    this.pubkeyToIpnsId = pk => multihashing.multihash.toB58String(multihashing(pk, 'sha2-256'));
+
     this.loadDirs = async (path) => {
       await this.ipfsReady();
 
@@ -629,7 +631,12 @@ class GravityProtocol {
     this.publishProfile = async (addrs) => {
       await this.sodiumReady();
 
-      const myIpnsId = (await this.getNodeInfo()).id;
+      const info = await this.getNodeInfo();
+      // sanity check
+      if (info.id !== this.pubkeyToIpnsId(info.publicKey)) {
+        throw new Error('WARNING pubkeyToIpnsId IS OUT OF DATE');
+      }
+      const myIpnsId = info.id;
       const privateKey = node._peerInfo.id._privKey; // eslint-disable-line no-underscore-dangle
       const publicKey = node._peerInfo.id._pubKey; // eslint-disable-line no-underscore-dangle
 
@@ -875,7 +882,6 @@ class GravityProtocol {
       const info = await this.getNodeInfo();
       return JSON.stringify({
         publicKey: info.publicKey,
-        id: info.id,
         addresses: info.addresses,
       });
     };
@@ -885,7 +891,7 @@ class GravityProtocol {
 
       const magic = JSON.parse(magicLink);
 
-      if (!('publicKey' in magic && 'id' in magic)) {
+      if (!('publicKey' in magic)) {
         throw new Error('magic link missing some info');
       }
       const pubkey = magic.publicKey;
@@ -893,7 +899,6 @@ class GravityProtocol {
 
       const contacts = await this.getContacts();
 
-      contacts[pubkey].id = magic.id;
       if (contacts[pubkey].addresses) {
         // remove duplicates
         contacts[pubkey].addresses = [...new Set(magic.addresses + contacts[pubkey].addresses)];
@@ -959,7 +964,7 @@ class GravityProtocol {
       newRecord.signature = Buffer.from(newRecord.signature);
       newRecord.validity = Buffer.from(newRecord.validity);
 
-      const ipnsId = multihashing.multihash.toB58String(multihashing(newRecord.pubKey, 'sha2-256'));
+      const ipnsId = this.pubkeyToIpnsId(newRecord.pubKey);
 
       if (!ipnsMap[ipnsId] || newRecord.sequence > ipnsMap[ipnsId].sequence) {
         // the new record is more recent
@@ -1009,8 +1014,7 @@ class GravityProtocol {
       if (ipnsId_ !== undefined && isIPFS.cid(ipnsId_)) {
         ipnsId = ipnsId_;
       } else {
-        contacts = await this.getContacts();
-        ipnsId = contacts[publicKey].id;
+        ipnsId = this.pubkeyToIpnsId(publicKey);
       }
 
       if (timeout) {
@@ -1083,8 +1087,7 @@ class GravityProtocol {
         await this.lookupProfileHash({ publicKey });
 
         groupKey = this.getGroupKey(groupSalt, publicKey);
-        const contacts = await this.getContacts();
-        ipnsId = contacts[publicKey].id;
+        ipnsId = this.pubkeyToIpnsId(publicKey);
       }
       const path = `/ipns/${ipnsId}/posts`;
       return this.getPostLinks(await groupKey, path);
