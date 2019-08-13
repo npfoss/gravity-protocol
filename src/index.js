@@ -77,9 +77,20 @@ const hashfunc = message => sodium.to_base64(sodium.crypto_generichash(10, Buffe
 // encrypt things with public keys
 // returns ciphertext as buffer
 // supports: RSA,
+// TODO: SUPPORT ED25519! the bug was figured out: https://github.com/ipfs/js-ipfs/issues/2261
 const encAsymm = async (publicKey, message) => {
+  // for now expects publicKey to be a base64-encoded IPFS protobuf-encoded RSA key
+
+  const buf = Buffer.from(publicKey, 'base64');
+  // eslint-disable-next-line no-underscore-dangle
+  const tempPub = libp2pcrypto.keys.unmarshalPublicKey(buf)._key;
+
   const key = new NodeRSA();
-  key.importKey(publicKey);
+  key.importKey({
+    n: Buffer.from(tempPub.n, 'base64'),
+    e: Buffer.from(tempPub.e, 'base64'),
+  }, 'components-public');
+
   return key.encrypt(message);
 };
 
@@ -217,39 +228,6 @@ class GravityProtocol {
       return readable;
     };
 
-    // use standard format for public keys
-    /* supports:
-        * pkcs8 pem encoded key (standard for RSA) --> pkcs8 pem
-        * IPFS protobuf-encoded 2048 bit RSA key --> pkcs8 pem
-    */
-    // TODO: SUPPORT ED25519! the bug was figured out: https://github.com/ipfs/js-ipfs/issues/2261
-    this.toStandardPublicKeyFormat = (publicKey) => {
-      // already correctly formatted pkcs8-pem RSA key
-      try {
-        const key = new NodeRSA(publicKey, 'pkcs8-public-pem');
-        return key.exportKey('pkcs8-public-pem');
-      } catch (err) {
-        // console.log('not an RSA pem')
-      }
-      // ipfs protobuf-encoded RSA public key
-      try {
-        const buf = Buffer.from(publicKey, 'base64');
-        // eslint-disable-next-line no-underscore-dangle
-        const tempPub = libp2pcrypto.keys.unmarshalPublicKey(buf)._key;
-
-        const key = new NodeRSA();
-        key.importKey({
-          n: Buffer.from(tempPub.n, 'base64'),
-          e: Buffer.from(tempPub.e, 'base64'),
-        }, 'components-public');
-
-        return key.exportKey('pkcs8-public-pem');
-      } catch (err) {
-        // console.log('not IPFS protobuf RSA')
-      }
-
-      throw new Error('Unrecognized public key type');
-    };
 
     this.getNodeInfo = async () => {
       await this.ipfsReady();
@@ -257,10 +235,7 @@ class GravityProtocol {
     };
 
     // returns this instance's public key
-    this.getPublicKey = async () => {
-      const info = await this.getNodeInfo();
-      return this.toStandardPublicKeyFormat(info.publicKey);
-    };
+    this.getPublicKey = async () => (await this.getNodeInfo()).publicKey;
 
     this.loadDirs = async (path) => {
       await this.ipfsReady();
@@ -340,15 +315,11 @@ class GravityProtocol {
     // checks if already in contacts
     // adds a file in the subscribers folder for this friend so they can find the shared secret
     // adds them as contact (record shared secret, etc)
-    this.addSubscriber = async (publicKey_) => {
+    this.addSubscriber = async (publicKey) => {
       await this.ipfsReady();
       await this.sodiumReady();
-
-      /* note: choosing to do everything with their true public key in a standard format
-       *  because if we were to use the short IPFS ones (Qm...8g) it would change every time their
-       *  protobuf format changed (i.e. they add support for another key type)
-       */
-      const publicKey = this.toStandardPublicKeyFormat(publicKey_);
+      // note: choosing to do everything with their public key
+      //  because it's easier to go from public key to IPNS id (Qm...8g) than vice versa
 
       const contacts = await this.getContacts();
       let mySecret;
@@ -904,7 +875,7 @@ class GravityProtocol {
     this.getMagicLink = async () => {
       const info = await this.getNodeInfo();
       return JSON.stringify({
-        publicKey: await this.toStandardPublicKeyFormat(info.publicKey),
+        publicKey: info.publicKey,
         id: info.id,
         addresses: info.addresses,
       });
@@ -918,7 +889,7 @@ class GravityProtocol {
       if (!('publicKey' in magic && 'id' in magic)) {
         throw new Error('magic link missing some info');
       }
-      const pubkey = this.toStandardPublicKeyFormat(magic.publicKey);
+      const pubkey = magic.publicKey;
       await this.addSubscriber(pubkey);
 
       const contacts = await this.getContacts();
@@ -1026,11 +997,11 @@ class GravityProtocol {
     // will query peers for most up to date value if timeout is nonzero, otherwise pulls from cache
     // needs either an IPNS ID or a public key. will prefer IPNS ID if both are given
     this.lookupProfileHash = async ({
-      publicKey: publicKey_,
+      publicKey,
       ipnsId: ipnsId_,
       timeout = 1000,
     } = {}) => {
-      if (publicKey_ === 'me' || ipnsId_ === (await this.getNodeInfo()).id) {
+      if (publicKey === 'me' || ipnsId_ === (await this.getNodeInfo()).id) {
         return `/ipfs/${await this.getMyProfileHash()}`;
       }
 
@@ -1039,7 +1010,6 @@ class GravityProtocol {
       if (ipnsId_ !== undefined && isIPFS.cid(ipnsId_)) {
         ipnsId = ipnsId_;
       } else {
-        const publicKey = this.toStandardPublicKeyFormat(publicKey_);
         contacts = await this.getContacts();
         ipnsId = contacts[publicKey].id;
       }
@@ -1104,14 +1074,13 @@ class GravityProtocol {
       return postList;
     };
 
-    this.getAllPostLinks = async (groupSalt, publicKey_ = 'me') => {
+    this.getAllPostLinks = async (groupSalt, publicKey = 'me') => {
       let groupKey;
       let ipnsId;
-      if (publicKey_ === 'me') {
+      if (publicKey === 'me') {
         groupKey = this.getGroupKey(groupSalt, 'me');
         ipnsId = (await this.getNodeInfo()).id;
       } else {
-        const publicKey = this.toStandardPublicKeyFormat(publicKey_);
         await this.lookupProfileHash({ publicKey });
 
         groupKey = this.getGroupKey(groupSalt, publicKey);
