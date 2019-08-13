@@ -247,6 +247,28 @@ class GravityProtocol {
       return multihashing.multihash.toB58String(multihashing(pk, 'sha2-256'));
     };
 
+    const ipnsIdToPubkeyCache = {};
+    // only works if the person in question is in your contacts
+    // TODO: improve this, there's definitely an IPFS way
+    this.ipnsIdToPubkey = async (id) => {
+      if (id in ipnsIdToPubkeyCache) {
+        return ipnsIdToPubkeyCache[id];
+      }
+      if (id === await this.getIpnsId()) {
+        ipnsIdToPubkeyCache[id] = await this.getPublicKey();
+        return ipnsIdToPubkeyCache[id];
+      }
+      // generate the chache for all contacts
+      await Promise.all(Object.keys(await this.getContacts()).map(async (pk) => {
+        ipnsIdToPubkeyCache[await this.pubkeyToIpnsId(pk)] = pk;
+      }));
+
+      if (id in ipnsIdToPubkeyCache) {
+        return ipnsIdToPubkeyCache[id];
+      }
+      throw new Error(`couldn't find public key for id: ${id}`);
+    };
+
     this.loadDirs = async (path) => {
       await this.ipfsReady();
 
