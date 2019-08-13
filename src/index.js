@@ -915,6 +915,11 @@ class GravityProtocol {
     this.autoconnectPeers = async () => {
       await this.ipfsReady();
 
+      // wait until you have a few ipfs peers to bootstrap of off
+      // TODO: you could actually check this, but it's not ideal to rely on them anyways
+      // TODO: first explore how feasible it is to do this without the middleman
+      await sleep(2000);
+
       const contacts = await this.getContacts();
       console.log('Attempting to connect to many old addresses...');
       Object.keys(contacts).forEach((key) => {
@@ -925,6 +930,10 @@ class GravityProtocol {
           });
         }
       });
+
+      // TODO: find a better way of indicating success or failure
+      await sleep(2000);
+      return
     };
 
     // sends message to the specified peer address
@@ -1155,7 +1164,6 @@ class GravityProtocol {
         );
       });
 
-      await sleep(2000);
       await this.autoconnectPeers();
     });
   }
