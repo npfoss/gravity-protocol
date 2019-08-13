@@ -170,7 +170,7 @@ class GravityProtocol {
       const split = path.slice(6).split('/');
       const id = split[0];
       let base;
-      if (!cacheOnly || !(id in ipnsMap) || id === (await this.getNodeInfo()).id) {
+      if (!cacheOnly || !(id in ipnsMap) || id === (await this.getIpnsId())) {
         base = await this.lookupProfileHash({ ipnsId: id });
       } else {
         base = ipnsMap[id].value;
@@ -237,6 +237,9 @@ class GravityProtocol {
     // returns this instance's public key
     this.getPublicKey = async () => (await this.getNodeInfo()).publicKey;
 
+    this.getIpnsId = async () => (await this.getNodeInfo()).id;
+
+    // converts public keys (string or buffer) into the IPNS formatted short IDs
     this.pubkeyToIpnsId = (pk) => {
       if (typeof pk === 'string' || pk instanceof String) {
         return multihashing.multihash.toB58String(multihashing(Buffer.from(pk, 'base64'), 'sha2-256'));
@@ -417,12 +420,8 @@ class GravityProtocol {
       const groupKey = this.getGroupKey(publicKey, groupSalt);
       let enc;
       try {
-        if (publicKey === await this.getPublicKey()) {
-          enc = cat(`/groups/${groupSalt}/info.json.enc`);
-        } else {
-          const friendPath = await this.lookupProfileHash({ publicKey });
-          enc = cat(`${friendPath}/groups/${groupSalt}/info.json.enc`);
-        }
+        const path = await this.lookupProfileHash({ publicKey });
+        enc = cat(`${path}/groups/${groupSalt}/info.json.enc`);
       } catch (err) {
         if (err.message.includes('exist')) {
           console.log('Got this error in getGroupInfo but it probably just means there was no group info:');
@@ -444,9 +443,9 @@ class GravityProtocol {
       const contacts = await this.getContacts();
       const filenames = await ls(`/groups/${groupSalt}`)
         .then(flist => flist.map(f => f.name));
-      const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
-
       const myPublicKey = await this.getPublicKey();
+      const groupKey = await this.getGroupKey(myPublicKey, groupSalt);
+
       const missing = Object.keys(publicKeyToName).filter((pk) => {
         if (pk === myPublicKey) {
           return !(filenames.includes('me'));
@@ -463,7 +462,7 @@ class GravityProtocol {
       }
 
       // now we can finally set the nicknames
-      const groupInfo = await this.getGroupInfo(await this.getPublicKey(), groupSalt);
+      const groupInfo = await this.getGroupInfo(myPublicKey, groupSalt);
       if (groupInfo.members === undefined) {
         groupInfo.members = {};
       }
@@ -796,7 +795,7 @@ class GravityProtocol {
       const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
       const contentEnc = await this.encrypt(groupKey, text);
       await writeFile(node, `${await path}/main.txt.enc`, contentEnc);
-      return `/ipns/${(await this.getNodeInfo()).id}/${path}`;
+      return `/ipns/${await this.getIpnsId()}/${path}`;
     };
 
     // for posting reacts
@@ -821,7 +820,7 @@ class GravityProtocol {
       // note: .lenc is a new file type, for encrypted ipfs links
       //  use sparingly, because it won't be pinned with the profile
       await writeFile(node, `${await path}/main.lenc`, await contentEnc);
-      return `/ipns/${(await this.getNodeInfo()).id}/${path}`;
+      return `/ipns/${await this.getIpnsId()}/${path}`;
     };
 
     // label is how people will refer to it (e.g. :facepalm-7:)
@@ -1007,22 +1006,19 @@ class GravityProtocol {
       ipnsId: ipnsId_,
       timeout = 1000,
     } = {}) => {
-      if (publicKey === await this.getPublicKey() || ipnsId_ === (await this.getNodeInfo()).id) {
-        return `/ipfs/${await this.getMyProfileHash()}`;
-      }
-
       let ipnsId;
-      let contacts;
       if (ipnsId_ !== undefined && isIPFS.cid(ipnsId_)) {
         ipnsId = ipnsId_;
       } else {
         ipnsId = this.pubkeyToIpnsId(publicKey);
       }
 
+      if (ipnsId === (await this.getIpnsId())) {
+        return `/ipfs/${await this.getMyProfileHash()}`;
+      }
+
       if (timeout) {
-        if (contacts === undefined) {
-          contacts = await this.getContacts();
-        }
+        const contacts = await this.getContacts();
         // TODO: this can be an interesting and complicated strategy
         //  for example, you could only ask people in a certain more trusted group
         //  or you could try a few people first, and then more if that fails
@@ -1085,14 +1081,11 @@ class GravityProtocol {
 
     this.getAllPostLinks = async (publicKey, groupSalt) => {
       const groupKey = this.getGroupKey(publicKey, groupSalt);
-      let ipnsId;
-      if (publicKey === await this.getPublicKey()) {
-        ipnsId = (await this.getNodeInfo()).id;
-      } else {
-        await this.lookupProfileHash({ publicKey });
+      const ipnsId = this.pubkeyToIpnsId(publicKey);
 
-        ipnsId = this.pubkeyToIpnsId(publicKey);
-      }
+      // refresh latest profile version
+      await this.lookupProfileHash({ publicKey });
+
       const path = `/ipns/${ipnsId}/posts`;
       return this.getPostLinks(await groupKey, path);
     };
@@ -1121,9 +1114,8 @@ class GravityProtocol {
       // node.files.rm('/subscribers', { recursive: true }).catch(() => {});
       // node.files.rm('/private', { recursive: true }).catch(() => {});
 
-      const myIpnsId = (await this.getNodeInfo()).id;
       // sanity check
-      if (myIpnsId !== this.pubkeyToIpnsId(await this.getPublicKey())) {
+      if ((await this.getIpnsId()) !== this.pubkeyToIpnsId(await this.getPublicKey())) {
         throw new Error('WATCH OUT! pubkeyToIpnsId IS OUT OF DATE');
       }
 
@@ -1147,7 +1139,7 @@ class GravityProtocol {
             } else if (split[0] === 'g') { // it's a get, need to respond
               // TODO: responding blindly reveals who we're friends with (by what's in the cache).
               //  maybe don't respond to all of them
-              if (split[1] === myIpnsId) {
+              if (split[1] === (await this.getIpnsId())) {
                 // if they're asking for mine, might as well give the most up to date answer
                 await this.publishProfile([]);
               }
