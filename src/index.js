@@ -405,12 +405,12 @@ class GravityProtocol {
         const masterKey = await this.getMasterKey();
         groupKeyBuf = this.decrypt(masterKey, await cat(`/groups/${groupSalt}/me`));
       } else {
-        const friendPath = await this.lookupProfileHash({ publicKey });
-        const key = await this.testDecryptAllSubscribers(friendPath);
+        const key = await this.getFriendKey(publicKey);
 
+        const friendPath = this.lookupProfileHash({ publicKey });
         const salt = sodium.from_base64(groupSalt);
         const hash = hashfunc(uintConcat(salt, key));
-        groupKeyBuf = this.decrypt(key, await cat(`${friendPath}/groups/${groupSalt}/${hash}`));
+        groupKeyBuf = this.decrypt(key, await cat(`${await friendPath}/groups/${groupSalt}/${hash}`));
       }
       return sodium.from_base64(JSON.parse((await groupKeyBuf).toString())[0]);
     };
@@ -544,9 +544,9 @@ class GravityProtocol {
             .then(flist => flist.map(f => f.name));
         }
 
-        const friendPath = await this.lookupProfileHash({ publicKey });
-        const key = this.testDecryptAllSubscribers(friendPath);
+        const key = this.getFriendKey(publicKey);
 
+        const friendPath = await this.lookupProfileHash({ publicKey });
         const groups = await ls(`${friendPath}/groups`)
           .then(flist => flist.map(f => f.name));
 
