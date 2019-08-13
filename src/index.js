@@ -627,7 +627,6 @@ class GravityProtocol {
     // publishes profile and alerts everyone in the list of addrs
     //  useful if you update your profile with a DM for one person; no need to alert everyone else
     this.publishProfile = async (addrs) => {
-      // TODO: don't recompute all of this if it hasn't changed?
       await this.sodiumReady();
 
       const myIpnsId = (await this.getNodeInfo()).id;
@@ -743,7 +742,7 @@ class GravityProtocol {
       /* possibly useful but may have to update libsodium:
         console.log(sodium.sodium_bin2base64(271))
       */
-      // note: unlike hashfunc, can change this later and it doesn't matter
+      // note: unlike hashfunc, can change this naming system later and it doesn't matter
       const postdirname = sodium.to_base64(sodium.randombytes_buf(9));
 
       const postdir = `${path}/${hashfunc(uintConcat(salt, groupKey))}/${postdirname}`;
