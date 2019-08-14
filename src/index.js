@@ -1088,7 +1088,16 @@ class GravityProtocol {
     this.getPostLinks = async (groupKey, path, salt_ = undefined) => {
       let salt = salt_;
       const files = await ls(path)
-        .then(flist => flist.map(f => f.name));
+        .then(flist => flist.map(f => f.name))
+        .catch((err) => {
+          if (err.message.includes('exist')) {
+            // I think this should only happen if the profile in question has no /posts dir
+            console.log("got this error in getPostLinks but we're handling it:");
+            console.log(err);
+            return [];
+          }
+          throw err;
+        });
       let postList = [];
       if (files.includes('salt')) {
         salt = await cat(`${path}/salt`);
