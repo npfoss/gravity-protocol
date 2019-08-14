@@ -505,11 +505,13 @@ class GravityProtocol {
     //      and it's important to categorize people (into friends, family, etc) as they come in.
     // returns group name/salt (same thing)
     // groupID is optional. useful if you're trying to semantically link this group to a friend's
-    this.createGroup = async (publicKeys, /* optional */ groupID) => {
+    this.createGroup = async (publicKeys_, /* optional */ groupID) => {
       await this.sodiumReady();
       await this.ipfsReady();
 
       const contacts = await this.getContacts();
+      const mypk = await this.getPublicKey();
+      const publicKeys = publicKeys_.filter(k => k !== mypk);
 
       const missing = publicKeys.filter(k => !(k in contacts));
       if (missing.length > 0) {
@@ -547,7 +549,7 @@ class GravityProtocol {
 
       // now set all nicknames to "" so everyone knows who's in the group
       const nicknames = {};
-      publicKeys.concat([await this.getPublicKey()]).forEach((k) => {
+      publicKeys.concat([mypk]).forEach((k) => {
         nicknames[k] = '';
       });
       await this.setNicknames(nicknames, sodium.to_base64(salt));
@@ -1185,7 +1187,7 @@ class GravityProtocol {
         );
       });
 
-      await this.autoconnectPeers();
+      // await this.autoconnectPeers();
     });
   }
 }
