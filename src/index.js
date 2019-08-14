@@ -660,7 +660,11 @@ class GravityProtocol extends EventEmitter {
       }
 
       addrsToTry.forEach((addr) => {
-        this.sendToPeer(addr, message);
+        this.sendToPeer(addr, message)
+          .catch((err) => {
+            console.log(`failed to publish to peer: ${addr}`);
+            console.log(err);
+          });
       });
     };
 
@@ -929,10 +933,10 @@ class GravityProtocol extends EventEmitter {
             const split = data.toString().split(/\s+/);
 
             if (split[0] === 'p') { // post
-              this.handlePost(split);
+              resolve(this.handlePost(split));
             }
 
-            resolve(data);
+            resolve();
           }));
         });
       });
@@ -1020,7 +1024,11 @@ class GravityProtocol extends EventEmitter {
           (contacts[k].addresses ? contacts[k].addresses : [])).flat();
 
         addrsToTry.forEach((addr) => {
-          this.sendToPeer(addr, `g ${ipnsId}`);
+          this.sendToPeer(addr, `g ${ipnsId}`)
+            .catch((err) => {
+              console.log(`failed asking peer for help: ${addr}`);
+              console.log(err);
+            });
         });
 
         // TODO: there's a way better way to do this with promises.
