@@ -980,21 +980,25 @@ class GravityProtocol extends EventEmitter {
           - don't forget to handle connections opening/closing randomly even if peers still online
             (https://github.com/ipfs/js-ipfs/issues/2288)
       */
-      node.libp2p.dialProtocol(addr, '/gravity/0.0.1', (err, conn) => {
-        if (err) {
-          throw err;
-        }
-        pull(pull.values([message]), conn, pull.collect((err2, data) => {
-          if (err2) {
-            throw err2;
+      return new Promise((resolve) => {
+        node.libp2p.dialProtocol(addr, '/gravity/0.0.1', (err, conn) => {
+          if (err) {
+            throw err;
           }
-          // console.log(`got response: ${data.toString()}`);
-          const split = data.toString().split(/\s+/);
+          pull(pull.values([message]), conn, pull.collect((err2, data) => {
+            if (err2) {
+              throw err2;
+            }
+            // console.log(`got response: ${data.toString()}`);
+            const split = data.toString().split(/\s+/);
 
-          if (split[0] === 'p') { // post
-            this.handlePost(split);
-          }
-        }));
+            if (split[0] === 'p') { // post
+              this.handlePost(split);
+            }
+
+            resolve(data);
+          }));
+        });
       });
     };
 
