@@ -831,7 +831,7 @@ class GravityProtocol extends EventEmitter {
       const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
       const contentEnc = await this.encrypt(groupKey, text);
       await writeFile(node, `${await path}/main.txt.enc`, contentEnc);
-      return `/ipns/${await this.getIpnsId()}/${path}`;
+      return `/ipns/${await this.getIpnsId()}/${await path}`;
     };
 
     // for posting reacts
@@ -856,7 +856,7 @@ class GravityProtocol extends EventEmitter {
       // note: .lenc is a new file type, for encrypted ipfs links
       //  use sparingly, because it won't be pinned with the profile
       await writeFile(node, `${await path}/main.lenc`, await contentEnc);
-      return `/ipns/${await this.getIpnsId()}/${path}`;
+      return `/ipns/${await this.getIpnsId()}/${await path}`;
     };
 
     // label is how people will refer to it (e.g. :facepalm-7:)
