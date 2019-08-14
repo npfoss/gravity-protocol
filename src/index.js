@@ -569,24 +569,22 @@ class GravityProtocol extends EventEmitter {
     };
 
     // returns bio for the given group, or public.json if groupID === 'public'
-    this.getBio = async (groupID) => {
-      const publicKey = await this.getPublicKey();
-      let res;
+    this.getBio = async (publicKey, groupID) => {
+      const path = await this.lookupProfileHash({ publicKey });
       try {
         if (groupID === 'public') {
-          res = await cat('/bio/public.json')
+          return await cat(`${path}/bio/public.json`)
             .then(bio => JSON.parse(bio.toString()));
-        } else {
-          const groupKey = await this.getGroupKey(publicKey, groupID).catch(() => {
-            // here so we don't mistake an issue with the given groupID
-            //  for the file just not existing yet
-            throw new Error('[getBio] something is wrong with the groupID');
-          });
-          const salt = await cat('/bio/salt');
-          const filename = hashfunc(uintConcat(salt, groupKey));
-          res = await cat(`/bio/${filename}.json.enc`)
-            .then(async bio => JSON.parse(await this.decrypt(groupKey, bio)));
         }
+        const groupKey = await this.getGroupKey(publicKey, groupID).catch(() => {
+          // here so we don't mistake an issue with the given groupID
+          //  for the file just not existing yet
+          throw new Error('[getBio] something is wrong with the groupID');
+        });
+        const salt = await cat(`${path}/bio/salt`);
+        const filename = hashfunc(uintConcat(salt, groupKey));
+        return await cat(`${path}/bio/${filename}.json.enc`)
+          .then(async bio => JSON.parse(await this.decrypt(groupKey, bio)));
       } catch (err) {
         if (err.message.includes('exist')) {
           console.log("got this error in getBio but we're handling it:");
@@ -595,13 +593,11 @@ class GravityProtocol extends EventEmitter {
         }
         throw err;
       }
-
-      return res;
     };
 
     // overrides matching fields of bio for the given group, or public.json if groupID === 'public'
     this.setBio = async (groupID, newBio) => {
-      const bio = await this.getBio(groupID);
+      const bio = await this.getBio(await this.getPublicKey(), groupID);
       Object.assign(bio, newBio);
 
       let salt;
