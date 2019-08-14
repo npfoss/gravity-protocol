@@ -18,6 +18,10 @@ const EventEmitter = require('events');
  */
 
 
+// logging
+const LOG_MESSAGES = true;
+
+
 //*  UTILS
 
 const FILE_TYPES = {
@@ -924,7 +928,8 @@ class GravityProtocol extends EventEmitter {
             if (err2) {
               throw err2;
             }
-            // console.log(`got response: ${data.toString()}`);
+            if (LOG_MESSAGES) { console.log(`got response: ${data.toString()}`); }
+
             const split = data.toString().split(/\s+/);
 
             if (split[0] === 'p') { // post
@@ -1131,7 +1136,7 @@ class GravityProtocol extends EventEmitter {
         pull(
           connection,
           pull.asyncMap(async (data, cb) => {
-            // console.log('received:', data.toString());
+            if (LOG_MESSAGES) { console.log('received:', data.toString()); }
             const split = data.toString().split(/\s+/);
 
             if (split[0] === 'p') { // post
