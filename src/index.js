@@ -7,6 +7,15 @@ const Cookies = require('js-cookie');
 const sodium = require('libsodium-wrappers');
 const NodeRSA = require('node-rsa');
 const pull = require('pull-stream');
+const EventEmitter = require('events');
+/* types of events:
+ *  new-record: happens when a novel ipns record is ingested
+      returns: {
+        id: <ipns id that got updated>,
+        record: <the record itself>,
+        postData: <whatever else came with the 'post' message>,
+      }
+ */
 
 
 //*  UTILS
@@ -152,8 +161,10 @@ async function filter(arr, callback) {
 
 
 //*  the protocol
-class GravityProtocol {
+class GravityProtocol extends EventEmitter {
   constructor() {
+    super();
+
     const node = new IPFS();
 
     this.ipfsReady = async () => node.ready;
@@ -657,7 +668,8 @@ class GravityProtocol {
 
     // publishes profile and alerts everyone in the list of addrs
     //  useful if you update your profile with a DM for one person; no need to alert everyone else
-    this.publishProfile = async (addrs) => {
+    // appends `additionalData` to the post, for if you want to send extra stuff (like what changed)
+    this.publishProfile = async (/* optional */ addrs, additionalData) => {
       await this.sodiumReady();
 
       const info = await this.getNodeInfo();
@@ -678,7 +690,7 @@ class GravityProtocol {
       });
 
       ipnsMap[myIpnsId] = record;
-      const message = `p ${sodium.to_base64(ipns.marshal(record))}`;
+      const message = `p ${sodium.to_base64(ipns.marshal(record))} ${additionalData}`;
 
       // if addresses not provided, send to all contacts
       let addrsToTry = addrs;
@@ -980,14 +992,18 @@ class GravityProtocol {
           const split = data.toString().split(/\s+/);
 
           if (split[0] === 'p') { // post
-            this.updateIpnsRecord(split[1]);
+            this.handlePost(split);
           }
         }));
       });
     };
 
+    // simple function, just takes a post request and sends it to the next thing
+    // exists because it happens in two places, and DRY
+    this.handlePost = async split => this.ingestIpnsRecord(split[1], { postData: split.splice(2).join(' ') });
+
     // checks if the new record is valid and more recent. if so, updates our list
-    this.updateIpnsRecord = async (newRecordProto64) => {
+    this.ingestIpnsRecord = async (newRecordProto64, /* optional */ additionalEventData = {}) => {
       // convenient to save the record as an object
       const newRecord = ipns.unmarshal(sodium.from_base64(newRecordProto64));
       newRecord.value = Buffer.from(newRecord.value).toString();
@@ -1025,6 +1041,10 @@ class GravityProtocol {
           return;
         }
 
+        // emit an event if this is really new content
+        if (ipnsMap[ipnsId] === undefined || ipnsMap[ipnsId].value !== newRecord.value) {
+          this.emit('new-record', Object.assign(additionalEventData, { id: ipnsId, record: newRecord }));
+        }
         // TODO: also store in the right place in the profile (adrs?) for friends and yourself later
         ipnsMap[ipnsId] = newRecord;
       }
@@ -1176,7 +1196,7 @@ class GravityProtocol {
             const split = data.toString().split(/\s+/);
 
             if (split[0] === 'p') { // post
-              this.updateIpnsRecord(split[1]);
+              this.handlePost(split);
             } else if (split[0] === 'g') { // it's a get, need to respond
               // TODO: responding blindly reveals who we're friends with (by what's in the cache).
               //  maybe don't respond to all of them
