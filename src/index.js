@@ -166,8 +166,14 @@ async function filter(arr, callback) {
 
 //*  the protocol
 class GravityProtocol extends EventEmitter {
-  constructor() {
+  constructor(options = {}) {
     super();
+
+    // when trying to lookup a profile hash, if the current record is within this many millis
+    //  of the current time, then the cached version is used instead.
+    // useful for heavy-handedly cutting down on rapidly repeated lookups for different purposes
+    // setting it to zero should essentially disable it
+    const MIN_IPNS_OUTDATEDNESS = options.MIN_IPNS_OUTDATEDNESS || 1000;
 
     const node = new IPFS();
 
@@ -1011,6 +1017,17 @@ class GravityProtocol extends EventEmitter {
 
       if (ipnsId === (await this.getIpnsId())) {
         return `/ipfs/${await this.getMyProfileHash()}`;
+      }
+
+      // check if most recent record is recent enough, as determined by MIN_IPNS_OUTDATEDNESS
+      // note that this is pretty hacky for two reasons:
+      //  - the sequence number is only a timestamp by convention (i.e. because I did that below)
+      //  - that timestamp is set on another computer, so who knows how accurate it is...
+      // on the bright side, if it's wildly off then we'll just default to doing the right thing!
+      // TODO: maybe do something about all that^ could just record when they came in
+      if (ipnsId in ipnsMap
+          && Math.abs(Date.now() - ipnsMap[ipnsId].sequence) < MIN_IPNS_OUTDATEDNESS) {
+        return ipnsMap[ipnsId].value;
       }
 
       if (timeout) {
