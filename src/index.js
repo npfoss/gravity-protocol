@@ -934,7 +934,7 @@ class GravityProtocol extends EventEmitter {
             if (err2) {
               throw err2;
             }
-            if (LOG_MESSAGES) { console.log(`got response: ${data.toString()}`); }
+            if (LOG_MESSAGES) { console.log(`got response: ${data.toString().slice(0, 12)}...`); }
 
             const split = data.toString().split(/\s+/);
 
@@ -1157,7 +1157,7 @@ class GravityProtocol extends EventEmitter {
         pull(
           connection,
           pull.asyncMap(async (data, cb) => {
-            if (LOG_MESSAGES) { console.log('received:', data.toString()); }
+            if (LOG_MESSAGES) { console.log(`received: ${data.toString().slice(0, 12)}...`); }
             const split = data.toString().split(/\s+/);
 
             if (split[0] === 'p') { // post
