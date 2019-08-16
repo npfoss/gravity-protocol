@@ -995,6 +995,10 @@ class GravityProtocol extends EventEmitter {
         if (ipnsMap[ipnsId] === undefined || ipnsMap[ipnsId].value !== newRecord.value) {
           this.emit('new-record', Object.assign(additionalEventData, { id: ipnsId, record: newRecord }));
         }
+
+        // note the last time this entry was checked
+        newRecord.lastCheck = Date.now();
+
         // TODO: also store in the right place in the profile (adrs?) for friends and yourself later
         ipnsMap[ipnsId] = newRecord;
       }
@@ -1019,14 +1023,10 @@ class GravityProtocol extends EventEmitter {
         return `/ipfs/${await this.getMyProfileHash()}`;
       }
 
-      // check if most recent record is recent enough, as determined by MIN_IPNS_OUTDATEDNESS
-      // note that this is pretty hacky for two reasons:
-      //  - the sequence number is only a timestamp by convention (i.e. because I did that below)
-      //  - that timestamp is set on another computer, so who knows how accurate it is...
-      // on the bright side, if it's wildly off then we'll just default to doing the right thing!
-      // TODO: maybe do something about all that^ could just record when they came in
+      // check if the most recent record was refreshed recently enough,
+      //  as determined by MIN_IPNS_OUTDATEDNESS
       if (ipnsId in ipnsMap
-          && Math.abs(Date.now() - ipnsMap[ipnsId].sequence) < MIN_IPNS_OUTDATEDNESS) {
+          && Math.abs(Date.now() - ipnsMap[ipnsId].lastCheck) < MIN_IPNS_OUTDATEDNESS) {
         return ipnsMap[ipnsId].value;
       }
 
@@ -1056,6 +1056,9 @@ class GravityProtocol extends EventEmitter {
       if (ipnsMap[ipnsId] === undefined) {
         throw new Error('could not find IPNS record before timeout :(');
       }
+
+      // note the last time this entry was checked
+      ipnsMap[ipnsId].lastCheck = Date.now();
 
       return ipnsMap[ipnsId].value;
     };
