@@ -349,6 +349,10 @@ class GravityProtocol extends EventEmitter {
       // note: choosing to do everything with their public key
       //  because it's easier to go from public key to IPNS id (Qm...8g) than vice versa
 
+      if (publicKey === await this.getPublicKey()) {
+        throw new Error('Tried to add self as subscriber');
+      }
+
       const contacts = await this.getContacts();
       let mySecret;
       const promisesToWaitFor = [];
