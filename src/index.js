@@ -891,7 +891,8 @@ class GravityProtocol extends EventEmitter {
 
       if (contacts[pubkey].addresses) {
         // remove duplicates
-        contacts[pubkey].addresses = [...new Set(magic.addresses + contacts[pubkey].addresses)];
+        // eslint-disable-next-line max-len
+        contacts[pubkey].addresses = [...new Set(magic.addresses.concat(contacts[pubkey].addresses))];
       } else {
         contacts[pubkey].addresses = magic.addresses;
       }
