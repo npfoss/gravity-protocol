@@ -481,6 +481,7 @@ class GravityProtocol extends EventEmitter {
       if (groupInfo.members === undefined) {
         groupInfo.members = {};
       }
+      // TODO: also send .cmd to the group
       Object.assign(groupInfo.members, publicKeyToName);
       const enc = await this.encrypt(groupKey, JSON.stringify(groupInfo));
       await writeFile(node, `/groups/${groupSalt}/info.json.enc`, enc);
@@ -499,10 +500,10 @@ class GravityProtocol extends EventEmitter {
     // returns group name/salt (same thing)
     // groupID is optional. useful if you're trying to semantically link this group to a friend's
     this.createGroup = async (publicKeys_, /* optional */ groupID) => {
-      const contacts = await this.getContacts();
       const mypk = await this.getPublicKey();
       const publicKeys = publicKeys_.filter(k => k !== mypk);
 
+      const contacts = await this.getContacts();
       const missing = publicKeys.filter(k => !(k in contacts));
       if (missing.length > 0) {
         throw new Error(`Add the following public keys to your contacts first! ${missing}`);
@@ -545,6 +546,20 @@ class GravityProtocol extends EventEmitter {
       await this.setNicknames(nicknames, sodium.to_base64(salt));
 
       return sodium.to_base64(salt);
+    };
+
+    // sets the 'name' field in the group info
+    this.setGroupName = async (groupSalt, newName) => {
+      if (typeof newName !== 'string') throw new Error('group name should be string');
+
+      const groupInfo = await this.getGroupInfo(await this.getPublicKey(), groupSalt);
+      groupInfo.name = newName;
+      // TODO: also send .cmd to the group
+      const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
+      const enc = await this.encrypt(groupKey, JSON.stringify(groupInfo));
+      await writeFile(node, `/groups/${groupSalt}/info.json.enc`, enc);
+
+      return groupInfo;
     };
 
     // gets the list of groups you're in
