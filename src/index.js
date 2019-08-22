@@ -3,7 +3,6 @@ const IPFS = require('ipfs');
 const { crypto: libp2pcrypto, isIPFS } = require('ipfs');
 const ipns = require('ipns');
 const multihashing = require('multihashing');
-const Cookies = require('js-cookie');
 const sodium = require('libsodium-wrappers');
 const NodeRSA = require('node-rsa');
 const pull = require('pull-stream');
@@ -169,16 +168,32 @@ class GravityProtocol extends EventEmitter {
   constructor(options = {}) {
     super();
 
+    /* options may contain: {
+          MIN_IPNS_OUTDATEDNESS,
+          deviceKey,
+    } */
+
     // when trying to lookup a profile hash, if the current record is within this many millis
     //  of the current time, then the cached version is used instead.
     // useful for heavy-handedly cutting down on rapidly repeated lookups for different purposes
     // setting it to zero should essentially disable it
     const MIN_IPNS_OUTDATEDNESS = options.MIN_IPNS_OUTDATEDNESS || 1000;
 
+    if ('deviceKey' in options) {
+      sodium.ready
+        .then(() => {
+          this.loadDeviceKey(options.deviceKey);
+        });
+    }
+
     const node = new IPFS();
 
     // make sure to await this before doing anything!
     this.ready = Promise.all([node.ready, sodium.ready]);
+
+    // expose basic utils
+    this.to_base64 = sodium.to_base64;
+    this.from_base64 = sodium.from_base64;
 
     // maps ipns IDs ('Qm...') to links and ipns records
     // must be kept in sync with what's stored in the profile
@@ -284,27 +299,100 @@ class GravityProtocol extends EventEmitter {
 
     this.loadDirs = async path => loadDirs(node, path);
 
-    // use with caution
-    this.setMasterKey = (newkey) => {
-      Cookies.set('gravity-master-key', newkey, { expires: 365 });
-      // , { secure: true }); // for https only
-      // TODO: store somewhere better than in a cookie.
-      //  (only store a device key, keep master key enc in profile only)
-    };
+    // this is the key stored locally on the current device
+    // used to get the master key to do everything else
+    let deviceKey;
 
-    // use with caution
-    this.resetMasterKey = () => {
-      const key = sodium.crypto_secretbox_keygen();
-      this.setMasterKey(sodium.to_base64(key));
-      return key;
-    };
-
-    this.getMasterKey = () => {
-      const cookie = Cookies.get('gravity-master-key');
-      if (cookie === undefined) {
-        throw new Error('No master key');
+    // for external use. you need to have a device key to unlock the master key used for everything
+    this.loadDeviceKey = (key) => {
+      if (typeof key === 'string') {
+        deviceKey = sodium.from_base64(key);
+      } else {
+        deviceKey = key;
       }
-      return sodium.from_base64(cookie);
+    };
+
+    this.getDeviceKeyInfo = async () => {
+      const mk = this.getMasterKey();
+      let enc;
+      try {
+        enc = await cat('/device-keys/info.json.enc');
+      } catch (err) {
+        if (err.message.includes('exist')) {
+          console.log("got this error in getDeviceKeyInfo but we're handling it:");
+          console.log(err);
+          return {};
+        }
+        throw err;
+      }
+      return JSON.parse(await this.decrypt(await mk, enc));
+    };
+
+    const writeDeviceKeyInfo = async (info, masterKey = undefined) => {
+      let mk = masterKey;
+      if (!mk) mk = await this.getMasterKey();
+      const enc = this.encrypt(mk, JSON.stringify(info));
+      return writeFile(node, '/device-keys/info.json.enc', await enc);
+    };
+
+    this.setDeviceKeyDescription = async (key, desc) => {
+      const name = hashfunc(key);
+      const info = await this.getDeviceKeyInfo();
+      info[name] = desc;
+      return writeDeviceKeyInfo(info);
+    };
+
+    // `name` is the hash of the key to remove (likely learned from getDeviceKeyInfo)
+    this.removeDeviceKey = async (name) => {
+      const prom = node.files.rm(`/device-keys/${name}`, { recursive: true }).catch(() => {});
+      const info = await this.getDeviceKeyInfo();
+      delete info[name];
+      return Promise.all([prom, writeDeviceKeyInfo(info)]);
+    };
+
+    // if no master key given, uses existing device key to create another key
+    // loads the new key for future use, and returns a copy of it
+    this.createNewDeviceKey = async (description, masterKey = undefined) => {
+      const dk = sodium.crypto_secretbox_keygen();
+      const name = hashfunc(dk);
+      let mk = masterKey;
+      if (!mk) mk = await this.getMasterKey();
+
+      const enc = await this.encrypt(dk, sodium.to_base64(mk));
+      await writeFile(node, `/device-keys/${name}`, enc);
+      // now ready to use
+      this.loadDeviceKey(dk);
+
+      await this.setDeviceKeyDescription(dk, description);
+      return dk;
+    };
+
+    // since this gets used a ton, might as well cache
+    let masterKeyCache;
+
+    // ! use with extreme caution !
+    // clears device keys, makes a new master key, and returns a new device key with access to it
+    this.resetMasterKey = async () => {
+      // the line of no return:
+      await node.files.rm('/device-keys', { recursive: true }).catch(() => {});
+
+      // make the new keys
+      const mk = sodium.crypto_secretbox_keygen();
+      const dk = await this.createNewDeviceKey('first key', mk);
+
+      masterKeyCache = mk;
+      return dk;
+    };
+
+    this.getMasterKey = async () => {
+      if (masterKeyCache) return masterKeyCache;
+      if (deviceKey === undefined) {
+        throw new Error('Can\'t get master key, no device key loaded');
+      }
+      const name = hashfunc(deviceKey);
+      const enc = await cat(`/device-keys/${name}`);
+      masterKeyCache = sodium.from_base64(await this.decrypt(deviceKey, enc));
+      return masterKeyCache;
     };
 
     this.encrypt = async (key, message) => {
@@ -329,7 +417,7 @@ class GravityProtocol extends EventEmitter {
     this.getMyProfileHash = async () => (await node.files.stat('/')).hash;
 
     this.getContacts = async () => {
-      const mkey = this.getMasterKey();
+      const mkey = await this.getMasterKey();
       return cat('/private/contacts.json.enc')
         .then(async contacts => JSON.parse(await this.decrypt(mkey, contacts)))
         .catch((err) => {
@@ -370,7 +458,7 @@ class GravityProtocol extends EventEmitter {
         contacts[publicKey]['my-secret'] = sodium.to_base64(mySecret);
 
         // also save it for important future use
-        const encContacts = await this.encrypt(this.getMasterKey(), JSON.stringify(contacts));
+        const encContacts = await this.encrypt(await this.getMasterKey(), JSON.stringify(contacts));
         promisesToWaitFor.push(writeFile(node, '/private/contacts.json.enc', encContacts));
       }
 
@@ -420,7 +508,7 @@ class GravityProtocol extends EventEmitter {
     this.getGroupKey = async (publicKey, groupSalt) => {
       let groupKeyBuf;
       if (publicKey === await this.getPublicKey()) {
-        const masterKey = this.getMasterKey();
+        const masterKey = await this.getMasterKey();
         groupKeyBuf = this.decrypt(masterKey, await cat(`/groups/${groupSalt}/me`));
       } else {
         const key = await this.getFriendKey(publicKey);
@@ -526,7 +614,7 @@ class GravityProtocol extends EventEmitter {
       });
 
       // also add myself to the group
-      const sharedKey = this.getMasterKey();
+      const sharedKey = await this.getMasterKey();
       const ciphertext = await this.encrypt(sharedKey, message);
       promises.push(writeFile(node, `${groupdir}/me`, ciphertext));
 
@@ -912,7 +1000,7 @@ class GravityProtocol extends EventEmitter {
         contacts[pubkey].addresses = magic.addresses;
       }
 
-      const encContacts = this.encrypt(this.getMasterKey(), JSON.stringify(contacts));
+      const encContacts = this.encrypt(await this.getMasterKey(), JSON.stringify(contacts));
       await writeFile(node, '/private/contacts.json.enc', await encContacts);
     };
 
@@ -1164,6 +1252,7 @@ class GravityProtocol extends EventEmitter {
       // node.files.rm('/groups', { recursive: true }).catch(() => {});
       // node.files.rm('/subscribers', { recursive: true }).catch(() => {});
       // node.files.rm('/private', { recursive: true }).catch(() => {});
+      // node.files.rm('/device-keys', { recursive: true }).catch(() => {});
 
       // sanity check
       if ((await this.getIpnsId()) !== this.pubkeyToIpnsId(await this.getPublicKey())) {
