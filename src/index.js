@@ -198,7 +198,7 @@ class GravityProtocol extends EventEmitter {
     // maps ipns IDs ('Qm...') to links and ipns records
     // must be kept in sync with what's stored in the profile
     // duplicated here and there^ for fast lookup (so you don't need to decrypt every time)
-    const ipnsMap = {};
+    let ipnsMap = {};
 
     // needed because I override the way ipns resolves
     // takes a /ipns/validID/whatever path and returns /ipfs/validHash/whatever
@@ -1056,6 +1056,30 @@ class GravityProtocol extends EventEmitter {
       });
     };
 
+    const getIpnsRecordStore = async () => {
+      try {
+        const data = await cat('/private/records.json.enc');
+        return JSON.parse(await this.decrypt(await this.getMasterKey(), data));
+      } catch (err) {
+        if (err.message.includes('exist')) {
+          // I think this should only happen if the profile in question has no /posts dir
+          console.log("got this error in getIpnsRecordStore but we're handling it:");
+          console.log(err);
+          return {};
+        }
+        throw err;
+      }
+    };
+
+    // long-term storage, as opposed to ipnsMap
+    // for when you reload later and no one else is online
+    const storeIpnsRecord = async (id, record) => {
+      const records = await getIpnsRecordStore();
+      records[id] = record;
+      const enc = await this.encrypt(await this.getMasterKey(), JSON.stringify(records));
+      return writeFile(node, '/private/records.json.enc', enc);
+    };
+
     // simple function, just takes a post request and sends it to the next thing
     // exists because it happens in two places, and DRY
     this.handlePost = async split => this.ingestIpnsRecord(split[1], { postData: split.splice(2).join(' ') });
@@ -1107,8 +1131,9 @@ class GravityProtocol extends EventEmitter {
         // note the last time this entry was checked
         newRecord.lastCheck = Date.now();
 
-        // TODO: also store in the right place in the profile (adrs?) for friends and yourself later
         ipnsMap[ipnsId] = newRecord;
+        // this is async but it doesn't matter really when it finishes, just a background task
+        storeIpnsRecord(ipnsId, newRecord);
       }
     };
 
@@ -1292,6 +1317,13 @@ class GravityProtocol extends EventEmitter {
           connection,
         );
       });
+
+      // load old records. better than nothing if the peer is offline
+      try {
+        ipnsMap = Object.assign(await getIpnsRecordStore(), ipnsMap);
+      } catch (err) {
+        console.err(err);
+      }
 
       // await this.autoconnectPeers();
     });
