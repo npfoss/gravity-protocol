@@ -1307,6 +1307,8 @@ class GravityProtocol extends EventEmitter {
                 await this.publishProfile([]);
               }
               if (split[1] in ipnsMap) {
+                // TODO: I think marshal is going to throw errors if given a long-term cached record
+                //  (because all inputs have to be buffers and JSON doesn't get along with them)
                 return cb(null, `p ${sodium.to_base64(ipns.marshal(ipnsMap[split[1]]))}`);
               }
             }
