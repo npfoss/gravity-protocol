@@ -12,7 +12,7 @@ Please lint with `npm run lint-fix`.
 - initial system design was Nate Foss, Matthew Pfeiffer, Kifle Woldu, and Arthur Williams
 as our [final project](https://courses.csail.mit.edu/6.857/2019/project/17-Foss-Pfeiffer-Woldu-Williams.pdf) for MIT's 6.857
 - contributors:
-[Nate Foss](https://github.com/npfoss),
+[Nate Foss](https://github.com/npfoss), [Jeff Liu](https://github.com/jeffliu6)
 
 ## IPFS
 
