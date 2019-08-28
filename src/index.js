@@ -667,6 +667,8 @@ class GravityProtocol extends EventEmitter {
         nicknames[k] = '';
       });
       await this.setNicknames(nicknames, salt);
+
+      // TODO: send a .cmd alerting the group
     };
 
     // sets the 'name' field in the group info
@@ -1313,6 +1315,7 @@ class GravityProtocol extends EventEmitter {
     node.on('ready', async () => {
       await sodium.ready;
 
+      // Note: to start from scratch now you'll need to clear cookies too (because device keys)
       // node.files.rm('/posts', { recursive: true }).catch(() => {});
       // node.files.rm('/bio', { recursive: true }).catch(() => {});
       // node.files.rm('/groups', { recursive: true }).catch(() => {});
