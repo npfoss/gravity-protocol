@@ -507,8 +507,8 @@ class GravityProtocol extends EventEmitter {
     //    one idea: expose an encrypted copy of the key that I can just dec and use here?
     this.getGroupKey = async (publicKey, groupSalt_) => {
       let groupSalt = groupSalt_;
-      if (typeof groupSalt_ !== "string") {
-          groupSalt = sodium.to_base64(groupSalt_);
+      if (typeof groupSalt_ !== 'string') {
+        groupSalt = sodium.to_base64(groupSalt_);
       }
 
       let groupKeyBuf;
