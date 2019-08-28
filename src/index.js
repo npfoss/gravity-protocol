@@ -749,7 +749,7 @@ class GravityProtocol extends EventEmitter {
 
       const value = `/ipfs/${await this.getMyProfileHash()}`;
       const sequenceNumber = Date.now();
-      const lifetime = 15 * 60 * 1000; // ms
+      const lifetime = 365 * 24 * 60 * 60 * 1000; // ms
       const record = await new Promise((resolve, reject) => {
         ipns.create(privateKey, value, sequenceNumber, lifetime, (err, rec) => {
           if (err) { reject(err); }
@@ -1033,14 +1033,14 @@ class GravityProtocol extends EventEmitter {
           - don't forget to handle connections opening/closing randomly even if peers still online
             (https://github.com/ipfs/js-ipfs/issues/2288)
       */
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         node.libp2p.dialProtocol(addr, '/gravity/0.0.1', (err, conn) => {
           if (err) {
-            throw err;
+            reject(err);
           }
           pull(pull.values([message]), conn, pull.collect((err2, data) => {
             if (err2) {
-              throw err2;
+              reject(err2);
             }
             if (LOG_MESSAGES) { console.log(`got response: ${data.toString().slice(0, 12)}...`); }
 
@@ -1059,7 +1059,15 @@ class GravityProtocol extends EventEmitter {
     const getIpnsRecordStore = async () => {
       try {
         const data = await cat('/private/records.json.enc');
-        return JSON.parse(await this.decrypt(await this.getMasterKey(), data));
+        const savedMap = JSON.parse(await this.decrypt(await this.getMasterKey(), data));
+
+        Object.keys(savedMap).forEach((pk) => {
+          savedMap[pk].pubKey = Buffer.from(savedMap[pk].pubKey);
+          savedMap[pk].signature = Buffer.from(savedMap[pk].signature);
+          savedMap[pk].validity = Buffer.from(savedMap[pk].validity);
+        });
+
+        return savedMap;
       } catch (err) {
         if (err.message.includes('exist')) {
           // I think this should only happen if the profile in question has no /posts dir
@@ -1177,7 +1185,7 @@ class GravityProtocol extends EventEmitter {
           this.sendToPeer(addr, `g ${ipnsId}`)
             .catch((err) => {
               console.log(`failed asking peer for help: ${addr}`);
-              console.log(err);
+              console.log(err.message);
             });
         });
 
@@ -1307,8 +1315,6 @@ class GravityProtocol extends EventEmitter {
                 await this.publishProfile([]);
               }
               if (split[1] in ipnsMap) {
-                // TODO: I think marshal is going to throw errors if given a long-term cached record
-                //  (because all inputs have to be buffers and JSON doesn't get along with them)
                 return cb(null, `p ${sodium.to_base64(ipns.marshal(ipnsMap[split[1]]))}`);
               }
             }
@@ -1324,7 +1330,7 @@ class GravityProtocol extends EventEmitter {
       try {
         ipnsMap = Object.assign(await getIpnsRecordStore(), ipnsMap);
       } catch (err) {
-        console.err(err);
+        console.error(err);
       }
 
       // await this.autoconnectPeers();
