@@ -505,7 +505,12 @@ class GravityProtocol extends EventEmitter {
     // TODO: no 'this' to make it harder to accidentally mishandle keys
     //    nontrivial because you need it for client-side lazy loading of post data
     //    one idea: expose an encrypted copy of the key that I can just dec and use here?
-    this.getGroupKey = async (publicKey, groupSalt) => {
+    this.getGroupKey = async (publicKey, groupSalt_) => {
+      let groupSalt = groupSalt_;
+      if (typeof groupSalt_ !== "string") {
+          groupSalt = sodium.to_base64(groupSalt_);
+      }
+
       let groupKeyBuf;
       if (publicKey === await this.getPublicKey()) {
         const masterKey = await this.getMasterKey();
@@ -606,12 +611,7 @@ class GravityProtocol extends EventEmitter {
 
       const message = JSON.stringify([sodium.to_base64(groupKey)]);
 
-      const promises = publicKeys.map(async (pk) => {
-        const sharedKey = sodium.from_base64(contacts[pk]['my-secret']);
-        const name = hashfunc(uintConcat(salt, sharedKey));
-        const ciphertext = await this.encrypt(sharedKey, message);
-        return writeFile(node, `${groupdir}/${name}`, ciphertext);
-      });
+      const promises = [];
 
       // also add myself to the group
       const sharedKey = await this.getMasterKey();
@@ -626,14 +626,47 @@ class GravityProtocol extends EventEmitter {
 
       await Promise.all(promises);
 
+      await this.addToGroup(publicKeys, sodium.to_base64(salt));
+
       // now set all nicknames to "" so everyone knows who's in the group
       const nicknames = {};
-      publicKeys.concat([mypk]).forEach((k) => {
-        nicknames[k] = '';
-      });
+      nicknames[mypk] = '';
       await this.setNicknames(nicknames, sodium.to_base64(salt));
 
       return sodium.to_base64(salt);
+    };
+
+    // salt should be a string
+    this.addToGroup = async (publicKeys_, salt) => {
+      const mypk = await this.getPublicKey();
+      const publicKeys = publicKeys_.filter(k => k !== mypk);
+
+      const contacts = await this.getContacts();
+      const missing = publicKeys.filter(k => !(k in contacts));
+      if (missing.length > 0) {
+        throw new Error(`Add the following public keys to your contacts first! ${missing}`);
+      }
+
+      const groupKey = await this.getGroupKey(mypk, salt);
+      const groupdir = `/groups/${salt}`;
+
+      const message = JSON.stringify([sodium.to_base64(groupKey)]);
+
+      const promises = publicKeys.map(async (pk) => {
+        const sharedKey = sodium.from_base64(contacts[pk]['my-secret']);
+        const name = hashfunc(uintConcat(sodium.from_base64(salt), sharedKey));
+        const ciphertext = await this.encrypt(sharedKey, message);
+        return writeFile(node, `${groupdir}/${name}`, ciphertext);
+      });
+
+      await Promise.all(promises);
+
+      // now set all nicknames to "" so everyone knows who's in the group
+      const nicknames = {};
+      publicKeys.forEach((k) => {
+        nicknames[k] = '';
+      });
+      await this.setNicknames(nicknames, salt);
     };
 
     // sets the 'name' field in the group info
