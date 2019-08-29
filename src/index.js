@@ -604,10 +604,20 @@ class GravityProtocol extends EventEmitter {
       if (groupInfo.members === undefined) {
         groupInfo.members = {};
       }
-      // TODO: also send .cmd to the group
+
+      const namesChanged = Object.keys(publicKeyToName).filter(pk =>
+        // eslint-disable-next-line implicit-arrow-linebreak
+        publicKeyToName[pk] !== groupInfo.members[pk]);
+      if (namesChanged.length === 0) {
+        return groupInfo;
+      }
+
       Object.assign(groupInfo.members, publicKeyToName);
       const enc = await this.encrypt(groupKey, JSON.stringify(groupInfo));
       await writeFile(node, `/groups/${groupSalt}/info.json.enc`, enc);
+
+      // send a .cmd to the group alerting others to the change
+      await postCmd(groupSalt, 'setNicknames', [publicKeyToName]);
 
       return groupInfo;
     };
@@ -696,14 +706,15 @@ class GravityProtocol extends EventEmitter {
 
       await Promise.all(promises);
 
+      // send a .cmd to the group alerting others to the change
+      await postCmd(salt, 'addToGroup', publicKeys);
+
       // now set all nicknames to "" so everyone knows who's in the group
       const nicknames = {};
       publicKeys.forEach((k) => {
         nicknames[k] = '';
       });
       await this.setNicknames(nicknames, salt);
-
-      // TODO: send a .cmd alerting the group
     };
 
     // sets the 'name' field in the group info
@@ -712,10 +723,12 @@ class GravityProtocol extends EventEmitter {
 
       const groupInfo = await this.getGroupInfo(await this.getPublicKey(), groupSalt);
       groupInfo.name = newName;
-      // TODO: also send .cmd to the group
       const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
       const enc = await this.encrypt(groupKey, JSON.stringify(groupInfo));
       await writeFile(node, `/groups/${groupSalt}/info.json.enc`, enc);
+
+      // send a .cmd to the group alerting others to the change
+      await postCmd(groupSalt, 'setGroupName', [newName]);
 
       return groupInfo;
     };
