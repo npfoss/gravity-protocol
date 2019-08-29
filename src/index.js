@@ -641,6 +641,11 @@ class GravityProtocol extends EventEmitter {
       const mypk = await this.getPublicKey();
       const publicKeys = publicKeys_.filter(k => k !== mypk);
 
+      if (publicKeys.length === 0) {
+        console.warn('addToGroup called with empty list (or your own pubkey)');
+        return;
+      }
+
       const contacts = await this.getContacts();
       const missing = publicKeys.filter(k => !(k in contacts));
       if (missing.length > 0) {
