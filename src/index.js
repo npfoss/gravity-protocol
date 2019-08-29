@@ -529,7 +529,7 @@ class GravityProtocol extends EventEmitter {
     };
 
     // returns the info JSON for the given group
-    this.getGroupInfo = async (publicKey, groupSalt) => {
+    this.getGroupInfo = async (groupSalt, publicKey) => {
       const groupKey = this.getGroupKey(publicKey, groupSalt);
       let enc;
       try {
@@ -578,7 +578,7 @@ class GravityProtocol extends EventEmitter {
 
     // takes an object mapping public keys to nicknames (so you can do many at once)
     // sets the nicknames for those people in the group corresponding to groupSalt
-    this.setNicknames = async (publicKeyToName, groupSalt) => {
+    this.setNicknames = async (groupSalt, publicKeyToName) => {
       // first make sure everyone is in the group
       const contacts = await this.getContacts();
       const filenames = await ls(`/groups/${groupSalt}`)
@@ -602,7 +602,7 @@ class GravityProtocol extends EventEmitter {
       }
 
       // now we can finally set the nicknames
-      const groupInfo = await this.getGroupInfo(myPublicKey, groupSalt);
+      const groupInfo = await this.getGroupInfo(groupSalt, myPublicKey);
       if (groupInfo.members === undefined) {
         groupInfo.members = {};
       }
@@ -668,18 +668,18 @@ class GravityProtocol extends EventEmitter {
 
       await Promise.all(promises);
 
-      await this.addToGroup(publicKeys, sodium.to_base64(salt));
+      await this.addToGroup(sodium.to_base64(salt), publicKeys);
 
       // now set all nicknames to "" so everyone knows who's in the group
       const nicknames = {};
       nicknames[mypk] = '';
-      await this.setNicknames(nicknames, sodium.to_base64(salt));
+      await this.setNicknames(sodium.to_base64(salt), nicknames);
 
       return sodium.to_base64(salt);
     };
 
     // salt should be a string
-    this.addToGroup = async (publicKeys_, salt) => {
+    this.addToGroup = async (salt, publicKeys_) => {
       const mypk = await this.getPublicKey();
       const publicKeys = publicKeys_.filter(k => k !== mypk);
 
@@ -716,14 +716,14 @@ class GravityProtocol extends EventEmitter {
       publicKeys.forEach((k) => {
         nicknames[k] = '';
       });
-      await this.setNicknames(nicknames, salt);
+      await this.setNicknames(salt, nicknames);
     };
 
     // sets the 'name' field in the group info
     this.setGroupName = async (groupSalt, newName) => {
       if (typeof newName !== 'string') throw new Error('group name should be string');
 
-      const groupInfo = await this.getGroupInfo(await this.getPublicKey(), groupSalt);
+      const groupInfo = await this.getGroupInfo(groupSalt, await this.getPublicKey());
       groupInfo.name = newName;
       const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
       const enc = await this.encrypt(groupKey, JSON.stringify(groupInfo));
