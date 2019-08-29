@@ -544,6 +544,36 @@ class GravityProtocol extends EventEmitter {
       return JSON.parse(await this.decrypt(await groupKey, await enc));
     };
 
+    /*  .cmd type posts are for updating group state.
+     *  Since everyone maintains their own version of the group state,
+     *    you have to tell everyone when you change something so they can update their copy.
+     *  Command is the function used to update the state: addToGroup, setNickname, etc.
+     *  Args are the args to pass to that function, as a list (later to be used like cmd(...args); )
+     *
+     *  This function isn't exposed because you should never use it directly,
+     *    it should only happen as a byproduct of doing the state changes you're reporting.
+     */
+    const postCmd = async (groupSalt, command, args) => {
+      if (typeof command !== 'string') {
+        throw new Error('postCmd command should be a string');
+      }
+      if (Object.prototype.toString.call(args) !== '[object Array]') {
+        throw new Error('postCmd args should be a list');
+      }
+
+      const path = this.setupPostMetadata(groupSalt);
+
+      const groupKey = this.getGroupKey(await this.getPublicKey(), groupSalt);
+
+      const cmdObj = {
+        cmd: command,
+        args,
+      };
+      const contentEnc = await this.encrypt(await groupKey, JSON.stringify(cmdObj));
+      await writeFile(node, `${await path}/main.cmd.enc`, contentEnc);
+      return `/ipns/${await this.getIpnsId()}/${await path}`;
+    };
+
     // takes an object mapping public keys to nicknames (so you can do many at once)
     // sets the nicknames for those people in the group corresponding to groupSalt
     this.setNicknames = async (publicKeyToName, groupSalt) => {
@@ -901,11 +931,11 @@ class GravityProtocol extends EventEmitter {
         s: date.getTime(), // milliseconds since Jan 1, 1970
         // TODO: this can be shortened by base64 encoding the int, value unclear
       };
-      if (parents) {
+      if (parents && parents.length > 0) {
         // Parents
         meta.p = parents;
       }
-      if (tags) {
+      if (tags && tags.length > 0) {
         // taGs
         meta.g = tags;
       }
@@ -1316,6 +1346,7 @@ class GravityProtocol extends EventEmitter {
       }
       return (await this.decrypt(groupKey, await cat(`${path}/${mainName}`))).toString();
     };
+
 
     node.on('ready', async () => {
       await sodium.ready;
