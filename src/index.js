@@ -244,6 +244,8 @@ class GravityProtocol extends EventEmitter {
       }
       throw new Error('invalid path in ls');
     };
+    this.ls = ls;
+    this.cat = cat;
 
     // for debugging
     this.getIpnsInfo = () => {
