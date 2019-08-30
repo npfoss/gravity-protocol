@@ -588,6 +588,16 @@ class GravityProtocol extends EventEmitter {
       return `/ipns/${await this.getIpnsId()}/${await path}`;
     };
 
+    // takes a cmd object (the JSON in main.cmd) and does the appropriate update
+    this.doCmd = async (groupSalt, cmdObj) => {
+      const names = ['addToGroup', 'setGroupName', 'setNicknames'];
+      const funcs = [this.addToGroup, this.setGroupName, this.setNicknames];
+      const ind = names.indexOf(cmdObj.cmd);
+      if (ind === -1) throw new Error(`unsupported command: ${cmdObj.cmd}`);
+
+      return funcs[ind](groupSalt, ...cmdObj.args);
+    };
+
     // takes an object mapping public keys to nicknames (so you can do many at once)
     // sets the nicknames for those people in the group corresponding to groupSalt
     this.setNicknames = async (groupSalt, publicKeyToName) => {
@@ -693,7 +703,7 @@ class GravityProtocol extends EventEmitter {
     // salt should be a string
     this.addToGroup = async (salt, publicKeys_) => {
       const mypk = await this.getPublicKey();
-      const publicKeys = publicKeys_.filter(k => k !== mypk);
+      let publicKeys = publicKeys_.filter(k => k !== mypk);
 
       if (publicKeys.length === 0) {
         console.warn('addToGroup called with empty list (or your own pubkey)');
@@ -711,14 +721,25 @@ class GravityProtocol extends EventEmitter {
 
       const message = JSON.stringify([sodium.to_base64(groupKey)]);
 
+      const files = (await ls(groupdir)).map(f => f.name);
+
       const promises = publicKeys.map(async (pk) => {
         const sharedKey = sodium.from_base64(contacts[pk]['my-secret']);
         const name = hashfunc(uintConcat(sodium.from_base64(salt), sharedKey));
+        // check if they're already in the group
+        if (files.includes(name)) return undefined;
+        // need to record the ones who weren't by returning pk
         const ciphertext = await this.encrypt(sharedKey, message);
-        return writeFile(node, `${groupdir}/${name}`, ciphertext);
+        await writeFile(node, `${groupdir}/${name}`, ciphertext);
+        return pk;
       });
 
-      await Promise.all(promises);
+      // filter out all the ones that were already there
+      publicKeys = (await Promise.all(promises)).filter(pk => pk !== undefined);
+      if (publicKeys.length === 0) {
+        console.warn('all public keys being added were already in the group');
+        return;
+      }
 
       // send a .cmd to the group alerting others to the change
       await postCmd(salt, 'addToGroup', [publicKeys]);
@@ -736,6 +757,9 @@ class GravityProtocol extends EventEmitter {
       if (typeof newName !== 'string') throw new Error('group name should be string');
 
       const groupInfo = await this.getGroupInfo(groupSalt, await this.getPublicKey());
+
+      // check if it's actually changing
+      if (groupInfo.name === newName) return groupInfo;
 
       groupInfo.name = newName;
       const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
@@ -1376,9 +1400,6 @@ class GravityProtocol extends EventEmitter {
       const mainName = files.filter(f => /^main\./.test(f))[0];
       if (mainName === undefined) {
         return undefined;
-      }
-      if (!['main.txt.enc'].includes(mainName)) {
-        throw new Error('can\'t read post data, unsupported file type');
       }
       return (await this.decrypt(groupKey, await cat(`${path}/${mainName}`))).toString();
     };
