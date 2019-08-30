@@ -566,6 +566,8 @@ class GravityProtocol extends EventEmitter {
      *
      *  This function isn't exposed because you should never use it directly,
      *    it should only happen as a byproduct of doing the state changes you're reporting.
+     *
+     *  Also, don't forget to check for these in your app and do something about them! (i.e. doCmd)
      */
     const postCmd = async (groupSalt, command, args) => {
       if (typeof command !== 'string') {
