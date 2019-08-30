@@ -217,32 +217,42 @@ class GravityProtocol extends EventEmitter {
 
     // *** utils to handle basic ip[fn]s functions for any path ***
     const cat = async (path) => {
-      if (isIPFS.ipfsPath(path) || isIPFS.cid(path)) {
-        return node.cat(path);
+      try {
+        if (isIPFS.ipfsPath(path) || isIPFS.cid(path)) {
+          return await node.cat(path);
+        }
+        if (/^\/ipns\//.test(path)) {
+          // it's an ipns link, need to resolve the ID
+          return await cat(await resolveIpnsLink(path));
+        }
+        if (/^\//.test(path)) {
+          // last resort... maybe MFS path?
+          return await node.files.read(path);
+        }
+        throw new Error(`invalid path in cat: ${path}`);
+      } catch (err) {
+        console.log(`got this error in cat for path ${path}`);
+        throw err;
       }
-      if (/^\/ipns\//.test(path)) {
-        // it's an ipns link, need to resolve the ID
-        return cat(await resolveIpnsLink(path));
-      }
-      if (/^\//.test(path)) {
-        // last resort... maybe MFS path?
-        return node.files.read(path);
-      }
-      throw new Error(`invalid path in cat: ${path}`);
     };
     const ls = async (path) => {
-      if (isIPFS.ipfsPath(path) || isIPFS.cid(path)) {
-        return node.ls(path);
+      try {
+        if (isIPFS.ipfsPath(path) || isIPFS.cid(path)) {
+          return await node.ls(path);
+        }
+        if (/^\/ipns\//.test(path)) {
+          // it's an ipns link, need to resolve the ID
+          return await ls(await resolveIpnsLink(path));
+        }
+        if (/^\//.test(path)) {
+          // last resort... maybe MFS path?
+          return await node.files.ls(path);
+        }
+        throw new Error('invalid path in ls');
+      } catch (err) {
+        console.log(`got this error in ls for path ${path}`);
+        throw err;
       }
-      if (/^\/ipns\//.test(path)) {
-        // it's an ipns link, need to resolve the ID
-        return ls(await resolveIpnsLink(path));
-      }
-      if (/^\//.test(path)) {
-        // last resort... maybe MFS path?
-        return node.files.ls(path);
-      }
-      throw new Error('invalid path in ls');
     };
     this.ls = ls;
     this.cat = cat;
@@ -260,7 +270,6 @@ class GravityProtocol extends EventEmitter {
       });
       return readable;
     };
-
 
     this.getNodeInfo = async () => node.id();
 
@@ -325,6 +334,7 @@ class GravityProtocol extends EventEmitter {
           console.log(err);
           return {};
         }
+        console.warn('unexpected error in getDeviceKeyInfo');
         throw err;
       }
       return JSON.parse(await this.decrypt(await mk, enc));
@@ -428,6 +438,7 @@ class GravityProtocol extends EventEmitter {
             console.log(err);
             return {};
           }
+          console.warn('unexpected error in getContacts');
           throw err;
         });
     };
@@ -534,16 +545,17 @@ class GravityProtocol extends EventEmitter {
       let enc;
       try {
         const path = await this.lookupProfileHash({ publicKey });
-        enc = cat(`${path}/groups/${groupSalt}/info.json.enc`);
+        enc = await cat(`${path}/groups/${groupSalt}/info.json.enc`);
       } catch (err) {
         if (err.message.includes('exist')) {
           console.log('Got this error in getGroupInfo but it probably just means there was no group info:');
           console.log(err);
           return {};
         }
+        console.warn('unexpected error in getGroupInfo');
         throw err;
       }
-      return JSON.parse(await this.decrypt(await groupKey, await enc));
+      return JSON.parse(await this.decrypt(await groupKey, enc));
     };
 
     /*  .cmd type posts are for updating group state.
@@ -709,7 +721,7 @@ class GravityProtocol extends EventEmitter {
       await Promise.all(promises);
 
       // send a .cmd to the group alerting others to the change
-      await postCmd(salt, 'addToGroup', publicKeys);
+      await postCmd(salt, 'addToGroup', [publicKeys]);
 
       // now set all nicknames to "" so everyone knows who's in the group
       const nicknames = {};
@@ -724,6 +736,7 @@ class GravityProtocol extends EventEmitter {
       if (typeof newName !== 'string') throw new Error('group name should be string');
 
       const groupInfo = await this.getGroupInfo(groupSalt, await this.getPublicKey());
+
       groupInfo.name = newName;
       const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
       const enc = await this.encrypt(groupKey, JSON.stringify(groupInfo));
@@ -789,6 +802,7 @@ class GravityProtocol extends EventEmitter {
           console.log(err);
           return {};
         }
+        console.warn('unexpected error in getBio');
         throw err;
       }
     };
@@ -1160,6 +1174,7 @@ class GravityProtocol extends EventEmitter {
           console.log(err);
           return {};
         }
+        console.warn('unexpected error in getIpnsRecordStore');
         throw err;
       }
     };
@@ -1291,8 +1306,13 @@ class GravityProtocol extends EventEmitter {
 
     this.getFriendKey = async (publicKey) => {
       // TODO: cache all of this, it shouldn't change often (if ever) and testDecrypt is slow
-      const path = await this.lookupProfileHash({ publicKey });
-      return this.testDecryptAllSubscribers(path);
+      try {
+        const path = await this.lookupProfileHash({ publicKey });
+        return await this.testDecryptAllSubscribers(path);
+      } catch (err) {
+        console.warn(`error decrypting subscriber stuff for pubkey: ${publicKey}`);
+        throw err;
+      }
     };
 
     // recursively gets links to all the posts for the given group, starting at `path`
@@ -1310,6 +1330,7 @@ class GravityProtocol extends EventEmitter {
             console.log(err);
             return [];
           }
+          console.warn('unexpected error in getPostLinks');
           throw err;
         });
       let postList = [];
@@ -1417,6 +1438,7 @@ class GravityProtocol extends EventEmitter {
       try {
         ipnsMap = Object.assign(await getIpnsRecordStore(), ipnsMap);
       } catch (err) {
+        console.warn('ipnsRecordStore load failed');
         console.error(err);
       }
 
