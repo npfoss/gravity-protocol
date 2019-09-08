@@ -586,7 +586,7 @@ class GravityProtocol extends EventEmitter {
         args,
       };
       const contentEnc = await this.encrypt(await groupKey, JSON.stringify(cmdObj));
-      await writeFile(node, `${await path}/main.cmd.enc`, contentEnc);
+      await writeFile(node, `${await path}/main.cmd`, contentEnc);
       return `/ipns/${await this.getIpnsId()}/${await path}`;
     };
 
@@ -998,7 +998,10 @@ class GravityProtocol extends EventEmitter {
 
       const metaEnc = await this.encrypt(groupKey, JSON.stringify(meta));
       await mkdirPromise;
-      promisesToWaitFor.push(writeFile(node, `${postdir}/meta.json.enc`, metaEnc));
+      promisesToWaitFor.push(writeFile(node, `${postdir}/meta.json`, metaEnc));
+      // NOTE: meta.json is encrypted but doesn't have .enc
+      //  because there are going to be a ton of these so it saves a lot of space.
+      // There's no ambiguity because everything in a post is always encrypted.
 
       await Promise.all(promisesToWaitFor);
       return postdir;
@@ -1016,7 +1019,7 @@ class GravityProtocol extends EventEmitter {
 
       const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
       const contentEnc = await this.encrypt(groupKey, text);
-      await writeFile(node, `${await path}/main.txt.enc`, contentEnc);
+      await writeFile(node, `${await path}/main.txt`, contentEnc);
       return `/ipns/${await this.getIpnsId()}/${await path}`;
     };
 
@@ -1409,7 +1412,7 @@ class GravityProtocol extends EventEmitter {
 
     this.readPostMetadata = async (groupKey, path) =>
     // eslint-disable-next-line implicit-arrow-linebreak
-      JSON.parse(await this.decrypt(groupKey, await cat(`${path}/meta.json.enc`)));
+      JSON.parse(await this.decrypt(groupKey, await cat(`${path}/meta.json`)));
 
     this.readPostData = async (groupKey, path) => {
       const files = await ls(path)
