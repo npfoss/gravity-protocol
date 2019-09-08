@@ -1182,9 +1182,17 @@ class GravityProtocol extends EventEmitter {
     };
 
     const getIpnsRecordStore = async () => {
+      const mk = await this.getMasterKey();
       try {
-        const data = await cat('/private/records.json.enc');
-        const savedMap = JSON.parse(await this.decrypt(await this.getMasterKey(), data));
+        const files = (await ls('/private/records')).map(f => f.name);
+        const savedMap = {};
+
+        await Promise.all(files.map(async (f) => {
+          const data = await cat(`/private/records/${f}`);
+          const item = JSON.parse(await this.decrypt(mk, data));
+          const id = Object.keys(item)[0];
+          savedMap[id] = item[id];
+        }));
 
         Object.keys(savedMap).forEach((pk) => {
           savedMap[pk].pubKey = Buffer.from(savedMap[pk].pubKey);
@@ -1208,10 +1216,17 @@ class GravityProtocol extends EventEmitter {
     // long-term storage, as opposed to ipnsMap
     // for when you reload later and no one else is online
     const storeIpnsRecord = async (id, record) => {
-      const records = await getIpnsRecordStore();
-      records[id] = record;
-      const enc = await this.encrypt(await this.getMasterKey(), JSON.stringify(records));
-      return writeFile(node, '/private/records.json.enc', enc);
+      const mk = await this.getMasterKey();
+      // the '0' is in case I feel like changing this convention
+      //  -- I can just increment it and easily tell them apart
+      // also, space isn't really a constraint here so making the name longer is fine
+      const name = '0'.concat(hashfunc(uintConcat(mk, multihashing.multihash.fromB58String(id))));
+      // the point here is just to have a deterministic name for this file
+      //  that also doesn't reveal whose records they are (hence mixing in the master key)
+      const recordObj = {};
+      recordObj[id] = record;
+      const enc = await this.encrypt(mk, JSON.stringify(recordObj));
+      return writeFile(node, `/private/records/${name}.json.enc`, enc);
     };
 
     // simple function, just takes a post request and sends it to the next thing
