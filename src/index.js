@@ -441,6 +441,19 @@ class GravityProtocol extends EventEmitter {
         });
     };
 
+    this.setAddrs = async (publicKey, newAddrs) => {
+      const contacts = await this.getContacts();
+      if (Object.prototype.toString.call(newAddrs) !== '[object Array]') {
+        throw new Error(`setAddrs expects newAddrs to be array. got: ${newAddrs}`);
+      }
+      if (!(publicKey in contacts)) {
+        throw new Error(`tried to set addr of key not in contacts: ${publicKey}`);
+      }
+      contacts[publicKey].addresses = newAddrs;
+      const encContacts = await this.encrypt(await this.getMasterKey(), JSON.stringify(contacts));
+      return writeFile(node, '/private/contacts.json.enc', encContacts);
+    };
+
     // checks if already in contacts
     // adds a file in the subscribers folder for this friend so they can find the shared secret
     // adds them as contact (record shared secret, etc)
@@ -1472,6 +1485,11 @@ class GravityProtocol extends EventEmitter {
         console.warn('ipnsRecordStore load failed');
         console.error(err);
       }
+
+      // set most up to date address
+      // TODO: be more careful not to override other devices' addresses
+      const info = await this.getNodeInfo();
+      await this.setBio('public', { addresses: info.addresses });
 
       // await this.autoconnectPeers();
     });
