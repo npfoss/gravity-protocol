@@ -330,8 +330,7 @@ class GravityProtocol extends EventEmitter {
         enc = await cat('/device-keys/info.json.enc');
       } catch (err) {
         if (err.message.includes('exist')) {
-          console.log("got this error in getDeviceKeyInfo but we're handling it:");
-          console.log(err);
+          console.log("got this error in getDeviceKeyInfo but we're handling it:", err.message);
           return {};
         }
         console.warn('unexpected error in getDeviceKeyInfo');
@@ -434,8 +433,7 @@ class GravityProtocol extends EventEmitter {
         .then(async contacts => JSON.parse(await this.decrypt(mkey, contacts)))
         .catch((err) => {
           if (err.message.includes('exist')) {
-            console.log("got this error in getContacts but we're handling it:");
-            console.log(err);
+            console.log("got this error in getContacts but we're handling it:", err.message);
             return {};
           }
           console.warn('unexpected error in getContacts');
@@ -548,8 +546,7 @@ class GravityProtocol extends EventEmitter {
         enc = await cat(`${path}/groups/${groupSalt}/info.json.enc`);
       } catch (err) {
         if (err.message.includes('exist')) {
-          console.log('Got this error in getGroupInfo but it probably just means there was no group info:');
-          console.log(err);
+          console.log('Got this error in getGroupInfo but it probably just means there was no group info:', err.message);
           return {};
         }
         console.warn('unexpected error in getGroupInfo');
@@ -797,8 +794,7 @@ class GravityProtocol extends EventEmitter {
         });
       } catch (err) {
         if (err.message.includes('exist')) {
-          console.log('Got this error in getGroupList but it probably means the folder doesn\'t exist');
-          console.log(err);
+          console.log('Got this error in getGroupList but it probably means the folder doesn\'t exist:', err.message);
           return [];
         }
         throw err;
@@ -824,8 +820,7 @@ class GravityProtocol extends EventEmitter {
           .then(async bio => JSON.parse(await this.decrypt(groupKey, bio)));
       } catch (err) {
         if (err.message.includes('exist')) {
-          console.log("got this error in getBio but we're handling it:");
-          console.log(err);
+          console.log("got this error in getBio but we're handling it:", err.message);
           return {};
         }
         console.warn('unexpected error in getBio');
@@ -843,8 +838,7 @@ class GravityProtocol extends EventEmitter {
         salt = await cat('/bio/salt');
       } catch (err) {
         if (err.message.includes('exist')) {
-          console.log('got this error in setBio so making new salt');
-          console.log(err);
+          console.log('got this error in setBio so making new salt:', err.message);
           salt = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
           await writeFile(node, '/bio/salt', salt);
         } else {
@@ -961,8 +955,7 @@ class GravityProtocol extends EventEmitter {
         salt = await cat(`${path}/salt`);
       } catch (err) {
         if (err.message.includes('exist')) {
-          console.log("got this error in setupPostMetadata but it probably just means there's no salt yet");
-          console.log(err);
+          console.log("got this error in setupPostMetadata but it probably just means there's no salt yet:", err.message);
           salt = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
           promisesToWaitFor.push(writeFile(node, `${path}/salt`, salt));
         } else {
@@ -1207,8 +1200,7 @@ class GravityProtocol extends EventEmitter {
       } catch (err) {
         if (err.message.includes('exist')) {
           // I think this should only happen if the profile in question has no /posts dir
-          console.log("got this error in getIpnsRecordStore but we're handling it:");
-          console.log(err);
+          console.log("got this error in getIpnsRecordStore but we're handling it:", err.message);
           return {};
         }
         console.warn('unexpected error in getIpnsRecordStore');
@@ -1328,8 +1320,7 @@ class GravityProtocol extends EventEmitter {
         addrsToTry.forEach((addr) => {
           this.sendToPeer(addr, `g ${ipnsId}`)
             .catch((err) => {
-              console.log(`failed asking peer for help: ${addr}`);
-              console.log(err.message);
+              console.log(`failed asking peer for help: ${addr}`, '\nerror msg:', err.message);
             });
         });
 
@@ -1370,8 +1361,7 @@ class GravityProtocol extends EventEmitter {
         .catch((err) => {
           if (err.message.includes('exist')) {
             // I think this should only happen if the profile in question has no /posts dir
-            console.log("got this error in getPostLinks but we're handling it:");
-            console.log(err);
+            console.log("got this error in getPostLinks but we're handling it:", err.message);
             return [];
           }
           console.warn('unexpected error in getPostLinks');
