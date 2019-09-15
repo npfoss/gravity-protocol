@@ -171,6 +171,7 @@ class GravityProtocol extends EventEmitter {
     /* options may contain: {
           MIN_IPNS_OUTDATEDNESS,
           deviceKey,
+          LIGHT,
     } */
 
     // when trying to lookup a profile hash, if the current record is within this many millis
@@ -186,7 +187,7 @@ class GravityProtocol extends EventEmitter {
         });
     }
 
-    const node = new IPFS();
+    const node = options.LIGHT ? { ready: true } : new IPFS();
 
     // make sure to await this before doing anything!
     this.ready = Promise.all([node.ready, sodium.ready]);
@@ -1428,8 +1429,8 @@ class GravityProtocol extends EventEmitter {
     };
 
 
-    node.on('ready', async () => {
-      await sodium.ready;
+    const setup = async () => {
+      await this.ready;
 
       // Note: to start from scratch now you'll need to clear cookies too (because device keys)
       // node.files.rm('/posts', { recursive: true }).catch(() => {});
@@ -1492,7 +1493,8 @@ class GravityProtocol extends EventEmitter {
       await this.setBio('public', { addresses: info.addresses });
 
       // await this.autoconnectPeers();
-    });
+    };
+    setup();
   }
 }
 
