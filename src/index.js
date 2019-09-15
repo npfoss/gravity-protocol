@@ -814,18 +814,18 @@ class GravityProtocol extends EventEmitter {
       }
     };
 
-    // returns bio for the given group, or public.json if groupID === 'public'
-    this.getBio = async (publicKey, groupID) => {
+    // returns bio for the given group, or public.json if groupSalt === 'public'
+    this.getBio = async (publicKey, groupSalt) => {
       const path = await this.lookupProfileHash({ publicKey });
       try {
-        if (groupID === 'public') {
+        if (groupSalt === 'public') {
           return await cat(`${path}/bio/public.json`)
             .then(bio => JSON.parse(bio.toString()));
         }
-        const groupKey = await this.getGroupKey(publicKey, groupID).catch(() => {
-          // here so we don't mistake an issue with the given groupID
+        const groupKey = await this.getGroupKey(publicKey, groupSalt).catch(() => {
+          // here so we don't mistake an issue with the given groupSalt
           //  for the file just not existing yet
-          throw new Error('[getBio] something is wrong with the groupID');
+          throw new Error('[getBio] something is wrong with the groupSalt');
         });
         const salt = await cat(`${path}/bio/salt`);
         const filename = hashfunc(uintConcat(salt, groupKey));
@@ -841,9 +841,9 @@ class GravityProtocol extends EventEmitter {
       }
     };
 
-    // overrides matching fields of bio for the given group, or public.json if groupID === 'public'
-    this.setBio = async (groupID, newBio) => {
-      const bio = await this.getBio(await this.getPublicKey(), groupID);
+    // overrides matching fields of bio for the given group or public.json if groupSalt === 'public'
+    this.setBio = async (groupSalt, newBio) => {
+      const bio = await this.getBio(await this.getPublicKey(), groupSalt);
       Object.assign(bio, newBio);
 
       let salt;
@@ -861,8 +861,8 @@ class GravityProtocol extends EventEmitter {
 
       let data = JSON.stringify(bio);
       let filename = 'public.json';
-      if (groupID !== 'public') {
-        const groupKey = await this.getGroupKey(await this.getPublicKey(), groupID);
+      if (groupSalt !== 'public') {
+        const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
         data = await this.encrypt(groupKey, data);
         filename = `${hashfunc(uintConcat(salt, groupKey))}.json.enc`;
       }
