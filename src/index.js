@@ -217,44 +217,27 @@ class GravityProtocol extends EventEmitter {
     };
 
     // *** utils to handle basic ip[fn]s functions for any path ***
-    const cat = async (path) => {
+    const readGenerator = (func, mfsFunc, name = 'readGenerator') => async function inner(path) {
       try {
         if (isIPFS.ipfsPath(path) || isIPFS.cid(path)) {
-          return await node.cat(path);
+          return await func(path);
         }
         if (/^\/ipns\//.test(path)) {
           // it's an ipns link, need to resolve the ID
-          return await cat(await resolveIpnsLink(path));
+          return await inner(await resolveIpnsLink(path));
         }
         if (/^\//.test(path)) {
           // last resort... maybe MFS path?
-          return await node.files.read(path);
+          return await mfsFunc(path);
         }
-        throw new Error(`invalid path in cat: ${path}`);
+        throw new Error(`invalid path in ${name}: ${path}`);
       } catch (err) {
-        console.log(`got this error in cat for path ${path}`);
+        console.log(`got this error in ${name} for path ${path}`);
         throw err;
       }
     };
-    const ls = async (path) => {
-      try {
-        if (isIPFS.ipfsPath(path) || isIPFS.cid(path)) {
-          return await node.ls(path);
-        }
-        if (/^\/ipns\//.test(path)) {
-          // it's an ipns link, need to resolve the ID
-          return await ls(await resolveIpnsLink(path));
-        }
-        if (/^\//.test(path)) {
-          // last resort... maybe MFS path?
-          return await node.files.ls(path);
-        }
-        throw new Error('invalid path in ls');
-      } catch (err) {
-        console.log(`got this error in ls for path ${path}`);
-        throw err;
-      }
-    };
+    const cat = readGenerator(node.cat, node.files.read, 'cat');
+    const ls = readGenerator(node.ls, node.files.ls, 'ls');
     this.ls = ls;
     this.cat = cat;
 
