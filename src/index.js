@@ -220,7 +220,7 @@ class GravityProtocol extends EventEmitter {
     const readGenerator = (func, mfsFunc, name = 'readGenerator') => async function inner(path) {
       try {
         if (isIPFS.ipfsPath(path) || isIPFS.cid(path)) {
-          return await func(path);
+          return await func(path).then(async (res) => {console.log(res); console.log(Buffer.from(await (await fetch('https://ipfs.io'.concat(path))).arrayBuffer())); return res});
         }
         if (/^\/ipns\//.test(path)) {
           // it's an ipns link, need to resolve the ID
@@ -237,6 +237,7 @@ class GravityProtocol extends EventEmitter {
       }
     };
     const cat = readGenerator(node.cat, node.files.read, 'cat');
+    // const cat = readGenerator((path) => fetch('https://ipfs.io'.concat(path)), node.files.read, 'cat');
     const ls = readGenerator(node.ls, node.files.ls, 'ls');
     this.ls = ls;
     this.cat = cat;
