@@ -367,9 +367,19 @@ class GravityProtocol extends EventEmitter {
 
     // ! use with extreme caution !
     // clears device keys, makes a new master key, and returns a new device key with access to it
-    this.resetMasterKey = async () => {
+    // also deletes everything because without the master key it's useless anyways
+    this.deleteAllAndCreateNewIdentity = async () => {
       // the line of no return:
-      await node.files.rm('/device-keys', { recursive: true }).catch(() => {});
+      await Promise.all([
+        node.files.rm('/device-keys', { recursive: true }).catch(() => {}),
+        node.files.rm('/posts', { recursive: true }).catch(() => {}),
+        node.files.rm('/bio', { recursive: true }).catch(() => {}),
+        node.files.rm('/groups', { recursive: true }).catch(() => {}),
+        node.files.rm('/subscribers', { recursive: true }).catch(() => {}),
+        node.files.rm('/private', { recursive: true }).catch(() => {}),
+      ]);
+      // Note: to start from scratch now you'll need to clear cookies too
+      //  (if that's where you're storing device keys)
 
       // make the new keys
       const mk = sodium.crypto_secretbox_keygen();
@@ -1414,14 +1424,6 @@ class GravityProtocol extends EventEmitter {
 
     const setup = async () => {
       await this.ready;
-
-      // Note: to start from scratch now you'll need to clear cookies too (because device keys)
-      // node.files.rm('/posts', { recursive: true }).catch(() => {});
-      // node.files.rm('/bio', { recursive: true }).catch(() => {});
-      // node.files.rm('/groups', { recursive: true }).catch(() => {});
-      // node.files.rm('/subscribers', { recursive: true }).catch(() => {});
-      // node.files.rm('/private', { recursive: true }).catch(() => {});
-      // node.files.rm('/device-keys', { recursive: true }).catch(() => {});
 
       // sanity check
       if ((await this.getIpnsId()) !== this.pubkeyToIpnsId(await this.getPublicKey())) {
