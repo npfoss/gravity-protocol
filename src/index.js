@@ -1,8 +1,9 @@
 
 const IPFS = require('ipfs');
 const { crypto: libp2pcrypto, isIPFS } = require('ipfs');
+const PeerId = require('peer-id');
 const ipns = require('ipns');
-const multihashing = require('multihashing');
+const multihash = require('multihashes');
 const sodium = require('libsodium-wrappers');
 const NodeRSA = require('node-rsa');
 const pull = require('pull-stream');
@@ -189,6 +190,9 @@ class GravityProtocol extends EventEmitter {
 
     const node = options.LIGHT ? { ready: true } : new IPFS();
 
+    let myPeerId; // NOT related to IPFS node, this is your actual identity on the social network
+    // TODO now: setup
+
     // make sure to await this before doing anything!
     this.ready = Promise.all([node.ready, sodium.ready]);
 
@@ -258,16 +262,20 @@ class GravityProtocol extends EventEmitter {
     this.getNodeInfo = async () => node.id();
 
     // returns this instance's public key
-    this.getPublicKey = async () => (await this.getNodeInfo()).publicKey;
+    this.getPublicKey = async () => myPeerId.marshalPubKey();
+    // TODO now: doesn't have to be async any more
 
-    this.getIpnsId = async () => (await this.getNodeInfo()).id;
+    this.getIpnsId = async () => myPeerId.toB58String();
+    // TODO now: doesn't have to be async any more
 
     // converts public keys (string or buffer) into the IPNS formatted short IDs
     this.pubkeyToIpnsId = (pk) => {
+      let pkbuf = pk;
       if (typeof pk === 'string' || pk instanceof String) {
-        return multihashing.multihash.toB58String(multihashing(Buffer.from(pk, 'base64'), 'sha2-256'));
+        pkbuf = Buffer.from(pk, 'base64');
       }
-      return multihashing.multihash.toB58String(multihashing(pk, 'sha2-256'));
+      // ed25519 keys are short enough to inline, so that's standard
+      return multihash.toB58String(multihash.encode(pkbuf, 'identity'));
     };
 
     const ipnsIdToPubkeyCache = {};
@@ -382,10 +390,17 @@ class GravityProtocol extends EventEmitter {
       //  (if that's where you're storing device keys)
 
       // make the new keys
-      const mk = sodium.crypto_secretbox_keygen();
-      const dk = await this.createNewDeviceKey('first key', mk);
+      const masterKey = sodium.crypto_secretbox_keygen();
+      // new identity
+      myPeerId = await PeerId.create({ bits: 256, keyType: 'ed25519' });
+      // export/import
+      const m = myPeerId.marshal(); // m is a Buffer
+      const newid = PeerId.createFromProtobuf(Buffer.from(m));
+      // TODO now: save in profile, read, reset properly, etc
 
-      masterKeyCache = mk;
+      const dk = await this.createNewDeviceKey('first key', masterKey);
+
+      masterKeyCache = masterKey;
       return dk;
     };
 
@@ -1222,7 +1237,7 @@ class GravityProtocol extends EventEmitter {
       // the '0' is in case I feel like changing this convention
       //  -- I can just increment it and easily tell them apart
       // also, space isn't really a constraint here so making the name longer is fine
-      const name = '0'.concat(hashfunc(uintConcat(mk, multihashing.multihash.fromB58String(id))));
+      const name = '0'.concat(hashfunc(uintConcat(mk, multihash.fromB58String(id))));
       // the point here is just to have a deterministic name for this file
       //  that also doesn't reveal whose records they are (hence mixing in the master key)
       const recordObj = {};
