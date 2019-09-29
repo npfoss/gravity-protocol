@@ -181,20 +181,28 @@ class GravityProtocol extends EventEmitter {
     // setting it to zero should essentially disable it
     const MIN_IPNS_OUTDATEDNESS = options.MIN_IPNS_OUTDATEDNESS || 1000;
 
-    if ('deviceKey' in options) {
-      sodium.ready
-        .then(() => {
+    const initPromise = sodium.ready
+      .then(async () => {
+        if ('deviceKey' in options) {
+          // load the needful keys and stuff
           this.loadDeviceKey(options.deviceKey);
-        });
-    }
+          await this.loadPeerId();
+        } else {
+          // without a device key we can't do anything, by design.
+          // have to start over or it's useless
+          await this.deleteAllAndCreateNewIdentity();
+        }
+      });
 
     const node = options.LIGHT ? { ready: true } : new IPFS();
 
-    let myPeerId; // NOT related to IPFS node, this is your actual identity on the social network
-    // TODO now: setup
-
     // make sure to await this before doing anything!
-    this.ready = Promise.all([node.ready, sodium.ready]);
+    this.ready = Promise.all([node.ready, sodium.ready, initPromise]);
+
+    // NOT related to the IPFS node, this is your actual identity on the social network
+    // it's also an instance of libp2p's PeerId though, for compatibility with IPNS
+    // essentailly just a wrapper for a keypair, but also has their protobufs
+    let myPeerId;
 
     // expose basic utils
     this.to_base64 = sodium.to_base64;
@@ -262,11 +270,11 @@ class GravityProtocol extends EventEmitter {
     this.getNodeInfo = async () => node.id();
 
     // returns this instance's public key
-    this.getPublicKey = async () => myPeerId.marshalPubKey();
-    // TODO now: doesn't have to be async any more
+    this.getPublicKey = async () => sodium.to_base64(myPeerId.marshalPubKey());
+    // TODO: doesn't have to be async any more
 
     this.getIpnsId = async () => myPeerId.toB58String();
-    // TODO now: doesn't have to be async any more
+    // TODO: doesn't have to be async any more
 
     // converts public keys (string or buffer) into the IPNS formatted short IDs
     this.pubkeyToIpnsId = (pk) => {
@@ -304,14 +312,14 @@ class GravityProtocol extends EventEmitter {
 
     // this is the key stored locally on the current device
     // used to get the master key to do everything else
-    let deviceKey;
+    this.deviceKey = undefined;
 
     // for external use. you need to have a device key to unlock the master key used for everything
     this.loadDeviceKey = (key) => {
       if (typeof key === 'string') {
-        deviceKey = sodium.from_base64(key);
+        this.deviceKey = sodium.from_base64(key);
       } else {
-        deviceKey = key;
+        this.deviceKey = key;
       }
     };
 
@@ -370,6 +378,14 @@ class GravityProtocol extends EventEmitter {
       return dk;
     };
 
+    // loads your (encrpyted) identity from your profile
+    this.loadPeerId = async () => {
+      const encProtobuf = await cat('/private/peerid');
+      const mk = await this.getMasterKey();
+      const buf = sodium.from_base64(await this.decrypt(mk, encProtobuf));
+      myPeerId = await PeerId.createFromProtobuf(buf);
+    };
+
     // since this gets used a ton, might as well cache
     let masterKeyCache;
 
@@ -377,6 +393,7 @@ class GravityProtocol extends EventEmitter {
     // clears device keys, makes a new master key, and returns a new device key with access to it
     // also deletes everything because without the master key it's useless anyways
     this.deleteAllAndCreateNewIdentity = async () => {
+      console.warn('nuking everything');
       // the line of no return:
       await Promise.all([
         node.files.rm('/device-keys', { recursive: true }).catch(() => {}),
@@ -393,25 +410,28 @@ class GravityProtocol extends EventEmitter {
       const masterKey = sodium.crypto_secretbox_keygen();
       // new identity
       myPeerId = await PeerId.create({ bits: 256, keyType: 'ed25519' });
-      // export/import
-      const m = myPeerId.marshal(); // m is a Buffer
-      const newid = PeerId.createFromProtobuf(Buffer.from(m));
-      // TODO now: save in profile, read, reset properly, etc
 
-      const dk = await this.createNewDeviceKey('first key', masterKey);
+      // save it in the profile
+      const buf = myPeerId.marshal(); // m is a Buffer
+      const enc = await this.encrypt(masterKey, sodium.to_base64(buf));
+      const prom = writeFile(node, '/private/peerid', enc);
+
+      this.deviceKey = await this.createNewDeviceKey('first key', masterKey);
 
       masterKeyCache = masterKey;
-      return dk;
+      await prom;
+
+      return this.deviceKey;
     };
 
     this.getMasterKey = async () => {
       if (masterKeyCache) return masterKeyCache;
-      if (deviceKey === undefined) {
+      if (this.deviceKey === undefined) {
         throw new Error('Can\'t get master key, no device key loaded');
       }
-      const name = hashfunc(deviceKey);
+      const name = hashfunc(this.deviceKey);
       const enc = await cat(`/device-keys/${name}`);
-      masterKeyCache = sodium.from_base64(await this.decrypt(deviceKey, enc));
+      masterKeyCache = sodium.from_base64(await this.decrypt(this.deviceKey, enc));
       return masterKeyCache;
     };
 
