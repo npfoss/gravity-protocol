@@ -89,41 +89,32 @@ const hashfunc = message => sodium.to_base64(sodium.crypto_generichash(10, Buffe
 
 // encrypt things with public keys
 // returns ciphertext as buffer
-// supports: RSA,
-// TODO: SUPPORT ED25519! the bug was figured out: https://github.com/ipfs/js-ipfs/issues/2261
+// supports: Ed25519 (via Curve25519),
 const encAsymm = async (publicKey, message) => {
-  // for now expects publicKey to be a base64-encoded IPFS protobuf-encoded RSA key
+  // for now expects publicKey to be a base64-encoded IPFS-protobuf-encoded Ed25519 key
 
-  const buf = Buffer.from(publicKey, 'base64');
+  // might need a Buffer.from in front
+  const pk = libp2pcrypto.keys.unmarshalPublicKey(Buffer.from(publicKey, 'base64'));
+  // pk is a PeerId `Ed25519PublicKey` object
   // eslint-disable-next-line no-underscore-dangle
-  const tempPub = libp2pcrypto.keys.unmarshalPublicKey(buf)._key;
-
-  const key = new NodeRSA();
-  key.importKey({
-    n: Buffer.from(tempPub.n, 'base64'),
-    e: Buffer.from(tempPub.e, 'base64'),
-  }, 'components-public');
-
-  return key.encrypt(message);
+  const curveKey = sodium.crypto_sign_ed25519_pk_to_curve25519(pk._key);
+  const c = sodium.crypto_box_seal(message, curveKey);
+  return c;
 };
 
-// decrypt with ipfs node's private key
+// decrypt with your private key
 // returns decrypted stuff as buffer
-// supports RSA,
-const decAsymm = async (privateKey, ciphertext) => {
-  const privkey = new NodeRSA();
-  privkey.importKey({
-    n: Buffer.from(privateKey.n, 'base64'),
-    e: Buffer.from(privateKey.e, 'base64'),
-    d: Buffer.from(privateKey.d, 'base64'),
-    p: Buffer.from(privateKey.p, 'base64'),
-    q: Buffer.from(privateKey.q, 'base64'),
-    dmp1: Buffer.from(privateKey.dp, 'base64'),
-    dmq1: Buffer.from(privateKey.dq, 'base64'),
-    coeff: Buffer.from(privateKey.qi, 'base64'),
-  }, 'components');
+// supports: Ed25519 (via Curve25519),
+const decAsymm = async (peerId, ciphertext) => {
+  // for now assumes peerId to be an Ed25519 one
 
-  return privkey.decrypt(ciphertext);
+  // eslint-disable-next-line no-underscore-dangle
+  const sk = sodium.crypto_sign_ed25519_sk_to_curve25519(peerId.privKey._key);
+  // eslint-disable-next-line no-underscore-dangle
+  const pk = sodium.crypto_sign_ed25519_pk_to_curve25519(peerId.pubKey._key);
+  // not sure why it needs both but whatever
+
+  return sodium.crypto_box_seal_open(ciphertext, pk, sk);
 };
 
 // returns the one successful promise from a list, or rejects with list of errors
@@ -530,19 +521,13 @@ class GravityProtocol extends EventEmitter {
     // try to decrypt each blob in order to find the one intended for you
     // returns the shared secret as buffer/Uint8Array
     this.testDecryptAllSubscribers = async (path) => {
-      // TODO: check if the one you remember (from contacts) is still there first,
-      //    in a function that would otherwise call this
-
-      // eslint-disable-next-line no-underscore-dangle
-      const privateKey = node._peerInfo.id._privKey._key;
-
       const lst = await ls(`${path}/subscribers`);
 
       const promises = lst.map(async (obj) => {
         const ciphertext = await cat(obj.hash);
 
         // RSA lib will err if key is wrong. this is good. it gets trapped in the promise correctly
-        const res = (await decAsymm(privateKey, ciphertext)).toString();
+        const res = sodium.to_string(await decAsymm(myPeerId, ciphertext));
 
         if (res.slice(0, 5) !== 'Hello') {
           throw new Error('Decrypted message not in the correct format');
@@ -903,10 +888,9 @@ class GravityProtocol extends EventEmitter {
     //  useful if you update your profile with a DM for one person; no need to alert everyone else
     // appends `additionalData` to the post, for if you want to send extra stuff (like what changed)
     this.publishProfile = async (/* optional */ addrs, additionalData) => {
-      const info = await this.getNodeInfo();
-      const myIpnsId = info.id;
-      const privateKey = node._peerInfo.id._privKey; // eslint-disable-line no-underscore-dangle
-      const publicKey = node._peerInfo.id._pubKey; // eslint-disable-line no-underscore-dangle
+      const myIpnsId = await this.getIpnsId();
+      const privateKey = myPeerId.privKey;
+      const publicKey = myPeerId.pubKey;
 
       const value = `/ipfs/${await this.getMyProfileHash()}`;
       const sequenceNumber = Date.now();
@@ -1139,7 +1123,7 @@ class GravityProtocol extends EventEmitter {
     this.getMagicLink = async () => {
       const info = await this.getNodeInfo();
       return JSON.stringify({
-        publicKey: info.publicKey,
+        publicKey: await this.getPublicKey(),
         addresses: info.addresses,
       });
     };
@@ -1382,7 +1366,11 @@ class GravityProtocol extends EventEmitter {
     };
 
     this.getFriendKey = async (publicKey) => {
-      // TODO: cache all of this, it shouldn't change often (if ever) and testDecrypt is slow
+      // TODO: check if the one you remember (from contacts) is still there first,
+      //    in a function that would otherwise call this
+      // TODO: yeah that^
+      //    cache all of this, it shouldn't change often (if ever) and testDecrypt is slow
+
       try {
         const path = await this.lookupProfileHash({ publicKey });
         return await this.testDecryptAllSubscribers(path);
