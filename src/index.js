@@ -3,7 +3,8 @@ const IPFS = require('ipfs');
 const { crypto: libp2pcrypto, isIPFS } = require('ipfs');
 const PeerId = require('peer-id');
 const ipns = require('ipns');
-const multihash = require('multihashes');
+const multihashing = require('multihashing'); // need a more recent version than ipfs exports
+const multihash = require('multihashes'); // need a more recent version than ipfs exports
 const sodium = require('libsodium-wrappers');
 const NodeRSA = require('node-rsa');
 const pull = require('pull-stream');
@@ -89,32 +90,60 @@ const hashfunc = message => sodium.to_base64(sodium.crypto_generichash(10, Buffe
 
 // encrypt things with public keys
 // returns ciphertext as buffer
-// supports: Ed25519 (via Curve25519),
+// supports: RSA, Ed25519 (via Curve25519),
 const encAsymm = async (publicKey, message) => {
-  // for now expects publicKey to be a base64-encoded IPFS-protobuf-encoded Ed25519 key
+  // expects publicKey to be a base64-encoded IPFS-protobuf-encoded public key
 
-  // might need a Buffer.from in front
+  // TODO NATE: might need a Buffer.from in front
   const pk = libp2pcrypto.keys.unmarshalPublicKey(Buffer.from(publicKey, 'base64'));
-  // pk is a PeerId `Ed25519PublicKey` object
-  // eslint-disable-next-line no-underscore-dangle
-  const curveKey = sodium.crypto_sign_ed25519_pk_to_curve25519(pk._key);
-  const c = sodium.crypto_box_seal(message, curveKey);
-  return c;
+
+  if (pk.constructor.name === 'Ed25519PublicKey') {
+    // eslint-disable-next-line no-underscore-dangle
+    const curveKey = sodium.crypto_sign_ed25519_pk_to_curve25519(pk._key);
+    return sodium.crypto_box_seal(message, curveKey);
+  } if (pk.constructor.name === 'RsaPublicKey') {
+    const tempPub = pk._key; // eslint-disable-line no-underscore-dangle
+
+    const key = new NodeRSA();
+    key.importKey({
+      n: Buffer.from(tempPub.n, 'base64'),
+      e: Buffer.from(tempPub.e, 'base64'),
+    }, 'components-public');
+
+    return key.encrypt(message);
+  }
+  throw new Error('unknown key type in encAsymm');
 };
 
 // decrypt with your private key
 // returns decrypted stuff as buffer
-// supports: Ed25519 (via Curve25519),
+// supports: RSA, Ed25519 (via Curve25519),
 const decAsymm = async (peerId, ciphertext) => {
-  // for now assumes peerId to be an Ed25519 one
+  if (peerId.pubKey.constructor.name === 'Ed25519PublicKey') {
+    // eslint-disable-next-line no-underscore-dangle
+    const sk = sodium.crypto_sign_ed25519_sk_to_curve25519(peerId.privKey._key);
+    // eslint-disable-next-line no-underscore-dangle
+    const pk = sodium.crypto_sign_ed25519_pk_to_curve25519(peerId.pubKey._key);
+    // not sure why it needs both but whatever
 
-  // eslint-disable-next-line no-underscore-dangle
-  const sk = sodium.crypto_sign_ed25519_sk_to_curve25519(peerId.privKey._key);
-  // eslint-disable-next-line no-underscore-dangle
-  const pk = sodium.crypto_sign_ed25519_pk_to_curve25519(peerId.pubKey._key);
-  // not sure why it needs both but whatever
+    return sodium.crypto_box_seal_open(ciphertext, pk, sk);
+  } if (peerId.pubKey.constructor.name === 'RsaPublicKey') {
+    const sk = peerId.privKey._key; // eslint-disable-line no-underscore-dangle
+    const privkey = new NodeRSA();
+    privkey.importKey({
+      n: Buffer.from(sk.n, 'base64'),
+      e: Buffer.from(sk.e, 'base64'),
+      d: Buffer.from(sk.d, 'base64'),
+      p: Buffer.from(sk.p, 'base64'),
+      q: Buffer.from(sk.q, 'base64'),
+      dmp1: Buffer.from(sk.dp, 'base64'),
+      dmq1: Buffer.from(sk.dq, 'base64'),
+      coeff: Buffer.from(sk.qi, 'base64'),
+    }, 'components');
 
-  return sodium.crypto_box_seal_open(ciphertext, pk, sk);
+    return privkey.decrypt(ciphertext);
+  }
+  throw new Error('unrecognized PeerId key type in decAsymm');
 };
 
 // returns the one successful promise from a list, or rejects with list of errors
@@ -273,8 +302,14 @@ class GravityProtocol extends EventEmitter {
       if (typeof pk === 'string' || pk instanceof String) {
         pkbuf = Buffer.from(pk, 'base64');
       }
-      // ed25519 keys are short enough to inline, so that's standard
-      return multihash.toB58String(multihash.encode(pkbuf, 'identity'));
+      if (pk.length > 350) {
+        // RSA key, use SHA2-256
+        return multihash.toB58String(multihashing(pkbuf, 'sha2-256'));
+      } else {
+        // probably ed25519
+        // ed25519 keys are short enough to inline, so that's standard
+        return multihash.toB58String(multihash.encode(pkbuf, 'identity'));
+      }
     };
 
     const ipnsIdToPubkeyCache = {};
@@ -374,7 +409,7 @@ class GravityProtocol extends EventEmitter {
       const encProtobuf = await cat('/private/peerid');
       const mk = await this.getMasterKey();
       const buf = sodium.from_base64(await this.decrypt(mk, encProtobuf));
-      myPeerId = await PeerId.createFromProtobuf(buf);
+      myPeerId = await PeerId.createFromProtobuf(Buffer.from(buf));
     };
 
     // since this gets used a ton, might as well cache
@@ -400,7 +435,8 @@ class GravityProtocol extends EventEmitter {
       // make the new keys
       const masterKey = sodium.crypto_secretbox_keygen();
       // new identity
-      myPeerId = await PeerId.create({ bits: 256, keyType: 'ed25519' });
+      // myPeerId = await PeerId.create({ bits: 256, keyType: 'ed25519' });
+      myPeerId = await PeerId.create({ bits: 3072, keyType: 'rsa' });
 
       // save it in the profile
       const buf = myPeerId.marshal(); // m is a Buffer
