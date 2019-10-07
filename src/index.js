@@ -1,8 +1,10 @@
 
 const IPFS = require('ipfs');
 const { crypto: libp2pcrypto, isIPFS } = require('ipfs');
+const PeerId = require('peer-id');
 const ipns = require('ipns');
-const multihashing = require('multihashing');
+const multihashing = require('multihashing'); // need a more recent version than ipfs exports
+const multihash = require('multihashes'); // need a more recent version than ipfs exports
 const sodium = require('libsodium-wrappers');
 const NodeRSA = require('node-rsa');
 const pull = require('pull-stream');
@@ -88,41 +90,59 @@ const hashfunc = message => sodium.to_base64(sodium.crypto_generichash(10, Buffe
 
 // encrypt things with public keys
 // returns ciphertext as buffer
-// supports: RSA,
-// TODO: SUPPORT ED25519! the bug was figured out: https://github.com/ipfs/js-ipfs/issues/2261
+// supports: RSA, Ed25519 (via Curve25519),
 const encAsymm = async (publicKey, message) => {
-  // for now expects publicKey to be a base64-encoded IPFS protobuf-encoded RSA key
+  // expects publicKey to be a base64-encoded IPFS-protobuf-encoded public key
 
-  const buf = Buffer.from(publicKey, 'base64');
-  // eslint-disable-next-line no-underscore-dangle
-  const tempPub = libp2pcrypto.keys.unmarshalPublicKey(buf)._key;
+  const pk = libp2pcrypto.keys.unmarshalPublicKey(Buffer.from(publicKey, 'base64'));
 
-  const key = new NodeRSA();
-  key.importKey({
-    n: Buffer.from(tempPub.n, 'base64'),
-    e: Buffer.from(tempPub.e, 'base64'),
-  }, 'components-public');
+  if (pk.constructor.name === 'Ed25519PublicKey') {
+    // eslint-disable-next-line no-underscore-dangle
+    const curveKey = sodium.crypto_sign_ed25519_pk_to_curve25519(pk._key);
+    return sodium.crypto_box_seal(message, curveKey);
+  } if (pk.constructor.name === 'RsaPublicKey') {
+    const tempPub = pk._key; // eslint-disable-line no-underscore-dangle
 
-  return key.encrypt(message);
+    const key = new NodeRSA();
+    key.importKey({
+      n: Buffer.from(tempPub.n, 'base64'),
+      e: Buffer.from(tempPub.e, 'base64'),
+    }, 'components-public');
+
+    return key.encrypt(message);
+  }
+  throw new Error('unknown key type in encAsymm');
 };
 
-// decrypt with ipfs node's private key
+// decrypt with your private key
 // returns decrypted stuff as buffer
-// supports RSA,
-const decAsymm = async (privateKey, ciphertext) => {
-  const privkey = new NodeRSA();
-  privkey.importKey({
-    n: Buffer.from(privateKey.n, 'base64'),
-    e: Buffer.from(privateKey.e, 'base64'),
-    d: Buffer.from(privateKey.d, 'base64'),
-    p: Buffer.from(privateKey.p, 'base64'),
-    q: Buffer.from(privateKey.q, 'base64'),
-    dmp1: Buffer.from(privateKey.dp, 'base64'),
-    dmq1: Buffer.from(privateKey.dq, 'base64'),
-    coeff: Buffer.from(privateKey.qi, 'base64'),
-  }, 'components');
+// supports: RSA, Ed25519 (via Curve25519),
+const decAsymm = async (peerId, ciphertext) => {
+  if (peerId.pubKey.constructor.name === 'Ed25519PublicKey') {
+    // eslint-disable-next-line no-underscore-dangle
+    const sk = sodium.crypto_sign_ed25519_sk_to_curve25519(peerId.privKey._key);
+    // eslint-disable-next-line no-underscore-dangle
+    const pk = sodium.crypto_sign_ed25519_pk_to_curve25519(peerId.pubKey._key);
+    // not sure why it needs both but whatever
 
-  return privkey.decrypt(ciphertext);
+    return sodium.crypto_box_seal_open(ciphertext, pk, sk);
+  } if (peerId.pubKey.constructor.name === 'RsaPublicKey') {
+    const sk = peerId.privKey._key; // eslint-disable-line no-underscore-dangle
+    const privkey = new NodeRSA();
+    privkey.importKey({
+      n: Buffer.from(sk.n, 'base64'),
+      e: Buffer.from(sk.e, 'base64'),
+      d: Buffer.from(sk.d, 'base64'),
+      p: Buffer.from(sk.p, 'base64'),
+      q: Buffer.from(sk.q, 'base64'),
+      dmp1: Buffer.from(sk.dp, 'base64'),
+      dmq1: Buffer.from(sk.dq, 'base64'),
+      coeff: Buffer.from(sk.qi, 'base64'),
+    }, 'components');
+
+    return privkey.decrypt(ciphertext);
+  }
+  throw new Error('unrecognized PeerId key type in decAsymm');
 };
 
 // returns the one successful promise from a list, or rejects with list of errors
@@ -180,17 +200,28 @@ class GravityProtocol extends EventEmitter {
     // setting it to zero should essentially disable it
     const MIN_IPNS_OUTDATEDNESS = options.MIN_IPNS_OUTDATEDNESS || 1000;
 
-    if ('deviceKey' in options) {
-      sodium.ready
-        .then(() => {
-          this.loadDeviceKey(options.deviceKey);
-        });
-    }
+    const initPromise = sodium.ready
+      .then(async () => {
+        if ('deviceKey' in options) {
+          // load the needful keys and stuff
+          this.setDeviceKey(options.deviceKey);
+          await this.loadPeerId();
+        } else {
+          // without a device key we can't do anything, by design.
+          // have to start over or it's useless
+          await this.deleteAllAndCreateNewIdentity();
+        }
+      });
 
     const node = options.LIGHT ? { ready: true } : new IPFS();
 
     // make sure to await this before doing anything!
-    this.ready = Promise.all([node.ready, sodium.ready]);
+    this.ready = Promise.all([node.ready, sodium.ready, initPromise]);
+
+    // NOT related to the IPFS node, this is your actual identity on the social network
+    // it's also an instance of libp2p's PeerId though, for compatibility with IPNS
+    // essentailly just a wrapper for a keypair, but also has their protobufs
+    let myPeerId;
 
     // expose basic utils
     this.to_base64 = sodium.to_base64;
@@ -255,19 +286,29 @@ class GravityProtocol extends EventEmitter {
       return readable;
     };
 
-    this.getNodeInfo = async () => node.id();
+    this.getIpfsNodeInfo = async () => node.id();
 
     // returns this instance's public key
-    this.getPublicKey = async () => (await this.getNodeInfo()).publicKey;
+    this.getPublicKey = async () => sodium.to_base64(myPeerId.marshalPubKey());
+    // TODO: doesn't have to be async any more
 
-    this.getIpnsId = async () => (await this.getNodeInfo()).id;
+    this.getIpnsId = async () => myPeerId.toB58String();
+    // TODO: doesn't have to be async any more
 
     // converts public keys (string or buffer) into the IPNS formatted short IDs
     this.pubkeyToIpnsId = (pk) => {
+      let pkbuf = pk;
       if (typeof pk === 'string' || pk instanceof String) {
-        return multihashing.multihash.toB58String(multihashing(Buffer.from(pk, 'base64'), 'sha2-256'));
+        pkbuf = Buffer.from(pk, 'base64');
       }
-      return multihashing.multihash.toB58String(multihashing(pk, 'sha2-256'));
+
+      if (pk.length < 50) {
+        // probably ed25519
+        // ed25519 keys are short enough to inline, so that's standard
+        return multihash.toB58String(multihash.encode(pkbuf, 'identity'));
+      }
+      // probably RSA key, use SHA2-256 by default anyways
+      return multihash.toB58String(multihashing(pkbuf, 'sha2-256'));
     };
 
     const ipnsIdToPubkeyCache = {};
@@ -296,14 +337,14 @@ class GravityProtocol extends EventEmitter {
 
     // this is the key stored locally on the current device
     // used to get the master key to do everything else
-    let deviceKey;
+    this.deviceKey = undefined;
 
     // for external use. you need to have a device key to unlock the master key used for everything
-    this.loadDeviceKey = (key) => {
+    this.setDeviceKey = (key) => {
       if (typeof key === 'string') {
-        deviceKey = sodium.from_base64(key);
+        this.deviceKey = sodium.from_base64(key);
       } else {
-        deviceKey = key;
+        this.deviceKey = key;
       }
     };
 
@@ -356,10 +397,23 @@ class GravityProtocol extends EventEmitter {
       const enc = await this.encrypt(dk, sodium.to_base64(mk));
       await writeFile(node, `/device-keys/${name}`, enc);
       // now ready to use
-      this.loadDeviceKey(dk);
+      this.setDeviceKey(dk);
 
       await this.setDeviceKeyDescription(dk, description);
       return dk;
+    };
+
+    // loads your (encrpyted) identity from your profile
+    this.loadPeerId = async () => {
+      const encProtobuf = await cat('/private/key');
+      const mk = await this.getMasterKey();
+      const buf = sodium.from_base64(await this.decrypt(mk, encProtobuf));
+      myPeerId = await new Promise((resolve, reject) => {
+        PeerId.createFromPrivKey(Buffer.from(buf), (err, rec) => {
+          if (err) { reject(err); }
+          resolve(rec);
+        });
+      });
     };
 
     // since this gets used a ton, might as well cache
@@ -369,6 +423,7 @@ class GravityProtocol extends EventEmitter {
     // clears device keys, makes a new master key, and returns a new device key with access to it
     // also deletes everything because without the master key it's useless anyways
     this.deleteAllAndCreateNewIdentity = async () => {
+      console.warn('nuking everything');
       // the line of no return:
       await Promise.all([
         node.files.rm('/device-keys', { recursive: true }).catch(() => {}),
@@ -382,21 +437,38 @@ class GravityProtocol extends EventEmitter {
       //  (if that's where you're storing device keys)
 
       // make the new keys
-      const mk = sodium.crypto_secretbox_keygen();
-      const dk = await this.createNewDeviceKey('first key', mk);
+      const masterKey = sodium.crypto_secretbox_keygen();
+      // new identity
+      myPeerId = await new Promise((resolve, reject) => {
+        PeerId.create({ bits: 256, keyType: 'ed25519' },
+        // PeerId.create({ bits: 3072, keyType: 'rsa' },
+          (err, pid) => {
+            if (err) { reject(err); }
+            resolve(pid);
+          });
+      });
 
-      masterKeyCache = mk;
-      return dk;
+      // save it in the profile
+      const buf = myPeerId.marshalPrivKey(); // this is a Buffer
+      const enc = await this.encrypt(masterKey, sodium.to_base64(buf));
+      const prom = writeFile(node, '/private/key', enc);
+
+      this.deviceKey = await this.createNewDeviceKey('first key', masterKey);
+
+      masterKeyCache = masterKey;
+      await prom;
+
+      return this.deviceKey;
     };
 
     this.getMasterKey = async () => {
       if (masterKeyCache) return masterKeyCache;
-      if (deviceKey === undefined) {
+      if (this.deviceKey === undefined) {
         throw new Error('Can\'t get master key, no device key loaded');
       }
-      const name = hashfunc(deviceKey);
+      const name = hashfunc(this.deviceKey);
       const enc = await cat(`/device-keys/${name}`);
-      masterKeyCache = sodium.from_base64(await this.decrypt(deviceKey, enc));
+      masterKeyCache = sodium.from_base64(await this.decrypt(this.deviceKey, enc));
       return masterKeyCache;
     };
 
@@ -495,19 +567,13 @@ class GravityProtocol extends EventEmitter {
     // try to decrypt each blob in order to find the one intended for you
     // returns the shared secret as buffer/Uint8Array
     this.testDecryptAllSubscribers = async (path) => {
-      // TODO: check if the one you remember (from contacts) is still there first,
-      //    in a function that would otherwise call this
-
-      // eslint-disable-next-line no-underscore-dangle
-      const privateKey = node._peerInfo.id._privKey._key;
-
       const lst = await ls(`${path}/subscribers`);
 
       const promises = lst.map(async (obj) => {
         const ciphertext = await cat(obj.hash);
 
         // RSA lib will err if key is wrong. this is good. it gets trapped in the promise correctly
-        const res = (await decAsymm(privateKey, ciphertext)).toString();
+        const res = sodium.to_string(await decAsymm(myPeerId, ciphertext));
 
         if (res.slice(0, 5) !== 'Hello') {
           throw new Error('Decrypted message not in the correct format');
@@ -868,22 +934,15 @@ class GravityProtocol extends EventEmitter {
     //  useful if you update your profile with a DM for one person; no need to alert everyone else
     // appends `additionalData` to the post, for if you want to send extra stuff (like what changed)
     this.publishProfile = async (/* optional */ addrs, additionalData) => {
-      const info = await this.getNodeInfo();
-      const myIpnsId = info.id;
-      const privateKey = node._peerInfo.id._privKey; // eslint-disable-line no-underscore-dangle
-      const publicKey = node._peerInfo.id._pubKey; // eslint-disable-line no-underscore-dangle
+      const myIpnsId = await this.getIpnsId();
+      const privateKey = myPeerId.privKey;
+      const publicKey = myPeerId.pubKey;
 
       const value = `/ipfs/${await this.getMyProfileHash()}`;
       const sequenceNumber = Date.now();
       const lifetime = 365 * 24 * 60 * 60 * 1000; // ms
-      const record = await new Promise((resolve, reject) => {
-        ipns.create(privateKey, value, sequenceNumber, lifetime, (err, rec) => {
-          if (err) { reject(err); }
-          ipns.embedPublicKey(publicKey, rec, (err2, rec2) => {
-            if (err2) { reject(err2); } else { resolve(rec2); }
-          });
-        });
-      });
+      let record = await ipns.create(privateKey, value, sequenceNumber, lifetime);
+      record = await ipns.embedPublicKey(publicKey, record);
 
       ipnsMap[myIpnsId] = record;
       const message = `p ${sodium.to_base64(ipns.marshal(record))} ${additionalData}`;
@@ -1101,13 +1160,10 @@ class GravityProtocol extends EventEmitter {
 
     // this is what you share to get people to add you
     // TODO: make it an actual URL-safe link
-    this.getMagicLink = async () => {
-      const info = await this.getNodeInfo();
-      return JSON.stringify({
-        publicKey: info.publicKey,
-        addresses: info.addresses,
-      });
-    };
+    this.getMagicLink = async () => JSON.stringify({
+      publicKey: await this.getPublicKey(),
+      addresses: (await this.getIpfsNodeInfo()).addresses,
+    });
 
     this.addViaMagicLink = async (magicLink) => {
       const magic = JSON.parse(magicLink);
@@ -1222,7 +1278,7 @@ class GravityProtocol extends EventEmitter {
       // the '0' is in case I feel like changing this convention
       //  -- I can just increment it and easily tell them apart
       // also, space isn't really a constraint here so making the name longer is fine
-      const name = '0'.concat(hashfunc(uintConcat(mk, multihashing.multihash.fromB58String(id))));
+      const name = '0'.concat(hashfunc(uintConcat(mk, multihash.fromB58String(id))));
       // the point here is just to have a deterministic name for this file
       //  that also doesn't reveal whose records they are (hence mixing in the master key)
       const recordObj = {};
@@ -1251,24 +1307,14 @@ class GravityProtocol extends EventEmitter {
       if (!ipnsMap[ipnsId] || newRecord.sequence > ipnsMap[ipnsId].sequence) {
         // the new record is more recent
 
-        const pubKey = await new Promise((resolve, reject) => {
-          ipns.extractPublicKey({ pubKey: 'dummy' }, newRecord, (err, pk) => {
-            if (err) { reject(err); } else { resolve(pk); }
-          });
-        });
+        const pubKey = await ipns.extractPublicKey({ pubKey: 'dummy' }, newRecord);
         if (pubKey === 'dummy') {
           console.warn("public key wasn't attached to record");
           return;
         }
 
         try {
-          await new Promise((resolve, reject) => {
-            ipns.validate(pubKey, newRecord, (err) => {
-              // if no error, the record is valid
-              if (err) { reject(err); }
-              resolve();
-            });
-          });
+          await ipns.validate(pubKey, newRecord);
         } catch (err) {
           console.warn(err);
           return;
@@ -1347,7 +1393,11 @@ class GravityProtocol extends EventEmitter {
     };
 
     this.getFriendKey = async (publicKey) => {
-      // TODO: cache all of this, it shouldn't change often (if ever) and testDecrypt is slow
+      // TODO: check if the one you remember (from contacts) is still there first,
+      //    in a function that would otherwise call this
+      // TODO: yeah that^
+      //    cache all of this, it shouldn't change often (if ever) and testDecrypt is slow
+
       try {
         const path = await this.lookupProfileHash({ publicKey });
         return await this.testDecryptAllSubscribers(path);
@@ -1474,8 +1524,7 @@ class GravityProtocol extends EventEmitter {
 
       // set most up to date address
       // TODO: be more careful not to override other devices' addresses
-      const info = await this.getNodeInfo();
-      await this.setBio('public', { addresses: info.addresses });
+      await this.setBio('public', { addresses: (await this.getIpfsNodeInfo()).addresses });
 
       // await this.autoconnectPeers();
     };

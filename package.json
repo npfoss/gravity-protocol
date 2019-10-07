@@ -21,10 +21,12 @@
   "dependencies": {
     "buffer": "^5.2.1",
     "ipfs": "^0.37.0",
-    "ipns": "~0.5.2",
+    "ipns": "^0.6.1",
     "libsodium-wrappers": "^0.7.4",
+    "multihashes": "^0.4.15",
     "multihashing": "^0.3.3",
     "node-rsa": "^1.0.5",
+    "peer-id": "~0.12.5",
     "pull-stream": "^3.6.13"
   },
   "devDependencies": {
