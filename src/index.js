@@ -302,14 +302,14 @@ class GravityProtocol extends EventEmitter {
       if (typeof pk === 'string' || pk instanceof String) {
         pkbuf = Buffer.from(pk, 'base64');
       }
-      if (pk.length > 350) {
-        // RSA key, use SHA2-256
-        return multihash.toB58String(multihashing(pkbuf, 'sha2-256'));
-      } else {
+
+      if (pk.length < 50) {
         // probably ed25519
         // ed25519 keys are short enough to inline, so that's standard
         return multihash.toB58String(multihash.encode(pkbuf, 'identity'));
       }
+      // probably RSA key, use SHA2-256 by default anyways
+      return multihash.toB58String(multihashing(pkbuf, 'sha2-256'));
     };
 
     const ipnsIdToPubkeyCache = {};
