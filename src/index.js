@@ -286,7 +286,7 @@ class GravityProtocol extends EventEmitter {
       return readable;
     };
 
-    this.getNodeInfo = async () => node.id();
+    this.getIpfsNodeInfo = async () => node.id();
 
     // returns this instance's public key
     this.getPublicKey = async () => sodium.to_base64(myPeerId.marshalPubKey());
@@ -1160,13 +1160,10 @@ class GravityProtocol extends EventEmitter {
 
     // this is what you share to get people to add you
     // TODO: make it an actual URL-safe link
-    this.getMagicLink = async () => {
-      const info = await this.getNodeInfo();
-      return JSON.stringify({
-        publicKey: await this.getPublicKey(),
-        addresses: info.addresses,
-      });
-    };
+    this.getMagicLink = async () => JSON.stringify({
+      publicKey: await this.getPublicKey(),
+      addresses: (await this.getIpfsNodeInfo()).addresses,
+    });
 
     this.addViaMagicLink = async (magicLink) => {
       const magic = JSON.parse(magicLink);
@@ -1527,8 +1524,7 @@ class GravityProtocol extends EventEmitter {
 
       // set most up to date address
       // TODO: be more careful not to override other devices' addresses
-      const info = await this.getNodeInfo();
-      await this.setBio('public', { addresses: info.addresses });
+      await this.setBio('public', { addresses: (await this.getIpfsNodeInfo()).addresses });
 
       // await this.autoconnectPeers();
     };
