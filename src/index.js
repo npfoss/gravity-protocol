@@ -204,7 +204,7 @@ class GravityProtocol extends EventEmitter {
       .then(async () => {
         if ('deviceKey' in options) {
           // load the needful keys and stuff
-          this.loadDeviceKey(options.deviceKey);
+          this.setDeviceKey(options.deviceKey);
           await this.loadPeerId();
         } else {
           // without a device key we can't do anything, by design.
@@ -340,7 +340,7 @@ class GravityProtocol extends EventEmitter {
     this.deviceKey = undefined;
 
     // for external use. you need to have a device key to unlock the master key used for everything
-    this.loadDeviceKey = (key) => {
+    this.setDeviceKey = (key) => {
       if (typeof key === 'string') {
         this.deviceKey = sodium.from_base64(key);
       } else {
@@ -397,7 +397,7 @@ class GravityProtocol extends EventEmitter {
       const enc = await this.encrypt(dk, sodium.to_base64(mk));
       await writeFile(node, `/device-keys/${name}`, enc);
       // now ready to use
-      this.loadDeviceKey(dk);
+      this.setDeviceKey(dk);
 
       await this.setDeviceKeyDescription(dk, description);
       return dk;
