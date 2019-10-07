@@ -406,10 +406,15 @@ class GravityProtocol extends EventEmitter {
 
     // loads your (encrpyted) identity from your profile
     this.loadPeerId = async () => {
-      const encProtobuf = await cat('/private/peerid');
+      const encProtobuf = await cat('/private/key');
       const mk = await this.getMasterKey();
       const buf = sodium.from_base64(await this.decrypt(mk, encProtobuf));
-      myPeerId = await PeerId.createFromProtobuf(Buffer.from(buf));
+      myPeerId = await new Promise((resolve, reject) => {
+        PeerId.createFromPrivKey(Buffer.from(buf), (err, rec) => {
+          if (err) { reject(err); }
+          resolve(rec);
+        });
+      });
     };
 
     // since this gets used a ton, might as well cache
@@ -435,13 +440,19 @@ class GravityProtocol extends EventEmitter {
       // make the new keys
       const masterKey = sodium.crypto_secretbox_keygen();
       // new identity
-      // myPeerId = await PeerId.create({ bits: 256, keyType: 'ed25519' });
-      myPeerId = await PeerId.create({ bits: 3072, keyType: 'rsa' });
+      myPeerId = await new Promise((resolve, reject) => {
+        PeerId.create({ bits: 256, keyType: 'ed25519' },
+        // PeerId.create({ bits: 3072, keyType: 'rsa' },
+          (err, pid) => {
+            if (err) { reject(err); }
+            resolve(pid);
+          });
+      });
 
       // save it in the profile
-      const buf = myPeerId.marshal(); // m is a Buffer
+      const buf = myPeerId.marshalPrivKey(); // this is a Buffer
       const enc = await this.encrypt(masterKey, sodium.to_base64(buf));
-      const prom = writeFile(node, '/private/peerid', enc);
+      const prom = writeFile(node, '/private/key', enc);
 
       this.deviceKey = await this.createNewDeviceKey('first key', masterKey);
 
@@ -931,14 +942,8 @@ class GravityProtocol extends EventEmitter {
       const value = `/ipfs/${await this.getMyProfileHash()}`;
       const sequenceNumber = Date.now();
       const lifetime = 365 * 24 * 60 * 60 * 1000; // ms
-      const record = await new Promise((resolve, reject) => {
-        ipns.create(privateKey, value, sequenceNumber, lifetime, (err, rec) => {
-          if (err) { reject(err); }
-          ipns.embedPublicKey(publicKey, rec, (err2, rec2) => {
-            if (err2) { reject(err2); } else { resolve(rec2); }
-          });
-        });
-      });
+      let record = await ipns.create(privateKey, value, sequenceNumber, lifetime);
+      record = await ipns.embedPublicKey(publicKey, record);
 
       ipnsMap[myIpnsId] = record;
       const message = `p ${sodium.to_base64(ipns.marshal(record))} ${additionalData}`;
@@ -1306,24 +1311,14 @@ class GravityProtocol extends EventEmitter {
       if (!ipnsMap[ipnsId] || newRecord.sequence > ipnsMap[ipnsId].sequence) {
         // the new record is more recent
 
-        const pubKey = await new Promise((resolve, reject) => {
-          ipns.extractPublicKey({ pubKey: 'dummy' }, newRecord, (err, pk) => {
-            if (err) { reject(err); } else { resolve(pk); }
-          });
-        });
+        const pubKey = await ipns.extractPublicKey({ pubKey: 'dummy' }, newRecord);
         if (pubKey === 'dummy') {
           console.warn("public key wasn't attached to record");
           return;
         }
 
         try {
-          await new Promise((resolve, reject) => {
-            ipns.validate(pubKey, newRecord, (err) => {
-              // if no error, the record is valid
-              if (err) { reject(err); }
-              resolve();
-            });
-          });
+          await ipns.validate(pubKey, newRecord);
         } catch (err) {
           console.warn(err);
           return;
