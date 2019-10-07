@@ -94,7 +94,6 @@ const hashfunc = message => sodium.to_base64(sodium.crypto_generichash(10, Buffe
 const encAsymm = async (publicKey, message) => {
   // expects publicKey to be a base64-encoded IPFS-protobuf-encoded public key
 
-  // TODO NATE: might need a Buffer.from in front
   const pk = libp2pcrypto.keys.unmarshalPublicKey(Buffer.from(publicKey, 'base64'));
 
   if (pk.constructor.name === 'Ed25519PublicKey') {
