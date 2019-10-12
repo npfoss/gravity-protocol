@@ -19,6 +19,7 @@ const EventEmitter = require('events');
  */
 
 const pjson = require('../package.json');
+
 const GRAVITY_VERSION = pjson.version;
 
 
@@ -241,7 +242,7 @@ class GravityProtocol extends EventEmitter {
       const split = path.slice(6).split('/');
       const id = split[0];
       let base;
-      if (!cacheOnly || !(id in ipnsMap) || id === (await this.getIpnsId())) {
+      if (!cacheOnly || !(id in ipnsMap) || id === (this.getIpnsId())) {
         base = await this.lookupProfileHash({ ipnsId: id });
       } else {
         base = ipnsMap[id].value;
@@ -292,11 +293,9 @@ class GravityProtocol extends EventEmitter {
     this.getIpfsNodeInfo = async () => node.id();
 
     // returns this instance's public key
-    this.getPublicKey = async () => sodium.to_base64(myPeerId.marshalPubKey());
-    // TODO: doesn't have to be async any more
+    this.getPublicKey = () => sodium.to_base64(myPeerId.marshalPubKey());
 
-    this.getIpnsId = async () => myPeerId.toB58String();
-    // TODO: doesn't have to be async any more
+    this.getIpnsId = () => myPeerId.toB58String();
 
     // converts public keys (string or buffer) into the IPNS formatted short IDs
     this.pubkeyToIpnsId = (pk) => {
@@ -321,8 +320,8 @@ class GravityProtocol extends EventEmitter {
       if (id in ipnsIdToPubkeyCache) {
         return ipnsIdToPubkeyCache[id];
       }
-      if (id === await this.getIpnsId()) {
-        ipnsIdToPubkeyCache[id] = await this.getPublicKey();
+      if (id === this.getIpnsId()) {
+        ipnsIdToPubkeyCache[id] = this.getPublicKey();
         return ipnsIdToPubkeyCache[id];
       }
       // generate the chache for all contacts
@@ -534,7 +533,7 @@ class GravityProtocol extends EventEmitter {
       // note: choosing to do everything with their public key
       //  because it's easier to go from public key to IPNS id (Qm...8g) than vice versa
 
-      if (publicKey === await this.getPublicKey()) {
+      if (publicKey === this.getPublicKey()) {
         throw new Error('Tried to add self as subscriber');
       }
 
@@ -603,7 +602,7 @@ class GravityProtocol extends EventEmitter {
       }
 
       let groupKeyBuf;
-      if (publicKey === await this.getPublicKey()) {
+      if (publicKey === this.getPublicKey()) {
         const masterKey = await this.getMasterKey();
         groupKeyBuf = this.decrypt(masterKey, await cat(`/groups/${groupSalt}/me`));
       } else {
@@ -656,7 +655,7 @@ class GravityProtocol extends EventEmitter {
 
       const path = this.setupPostMetadata(groupSalt);
 
-      const groupKey = this.getGroupKey(await this.getPublicKey(), groupSalt);
+      const groupKey = this.getGroupKey(this.getPublicKey(), groupSalt);
 
       const cmdObj = {
         cmd: command,
@@ -664,7 +663,7 @@ class GravityProtocol extends EventEmitter {
       };
       const contentEnc = await this.encrypt(await groupKey, JSON.stringify(cmdObj));
       await writeFile(node, `${await path}/main.cmd`, contentEnc);
-      return `/ipns/${await this.getIpnsId()}/${await path}`;
+      return `/ipns/${this.getIpnsId()}/${await path}`;
     };
 
     // takes a cmd object (the JSON in main.cmd) and does the appropriate update
@@ -684,7 +683,7 @@ class GravityProtocol extends EventEmitter {
       const contacts = await this.getContacts();
       const filenames = await ls(`/groups/${groupSalt}`)
         .then(flist => flist.map(f => f.name));
-      const myPublicKey = await this.getPublicKey();
+      const myPublicKey = this.getPublicKey();
       const groupKey = await this.getGroupKey(myPublicKey, groupSalt);
 
       const missing = Object.keys(publicKeyToName).filter((pk) => {
@@ -736,7 +735,7 @@ class GravityProtocol extends EventEmitter {
     // returns group name/salt (same thing)
     // groupID is optional. useful if you're trying to semantically link this group to a friend's
     this.createGroup = async (publicKeys_, /* optional */ groupID) => {
-      const mypk = await this.getPublicKey();
+      const mypk = this.getPublicKey();
       const publicKeys = publicKeys_.filter(k => k !== mypk);
 
       const contacts = await this.getContacts();
@@ -781,7 +780,7 @@ class GravityProtocol extends EventEmitter {
 
     // salt should be a string
     this.addToGroup = async (salt, publicKeys_) => {
-      const mypk = await this.getPublicKey();
+      const mypk = this.getPublicKey();
       let publicKeys = publicKeys_.filter(k => k !== mypk);
 
       if (publicKeys.length === 0) {
@@ -835,13 +834,13 @@ class GravityProtocol extends EventEmitter {
     this.setGroupName = async (groupSalt, newName) => {
       if (typeof newName !== 'string') throw new Error('group name should be string');
 
-      const groupInfo = await this.getGroupInfo(groupSalt, await this.getPublicKey());
+      const groupInfo = await this.getGroupInfo(groupSalt, this.getPublicKey());
 
       // check if it's actually changing
       if (groupInfo.name === newName) return groupInfo;
 
       groupInfo.name = newName;
-      const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
+      const groupKey = await this.getGroupKey(this.getPublicKey(), groupSalt);
       const enc = await this.encrypt(groupKey, JSON.stringify(groupInfo));
       await writeFile(node, `/groups/${groupSalt}/info.json.enc`, enc);
 
@@ -854,7 +853,7 @@ class GravityProtocol extends EventEmitter {
     // gets the list of groups you're in
     this.getGroupList = async (publicKey) => {
       try {
-        if (publicKey === await this.getPublicKey()) {
+        if (publicKey === this.getPublicKey()) {
           return await ls('/groups')
             .then(flist => flist.map(f => f.name));
         }
@@ -910,7 +909,7 @@ class GravityProtocol extends EventEmitter {
 
     // overrides matching fields of bio for the given group or public.json if groupSalt === 'public'
     this.setBio = async (groupSalt, newBio) => {
-      const bio = await this.getBio(await this.getPublicKey(), groupSalt);
+      const bio = await this.getBio(this.getPublicKey(), groupSalt);
       Object.assign(bio, newBio);
 
       let salt;
@@ -929,7 +928,7 @@ class GravityProtocol extends EventEmitter {
       let data = JSON.stringify(bio);
       let filename = 'public.json';
       if (groupSalt !== 'public') {
-        const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
+        const groupKey = await this.getGroupKey(this.getPublicKey(), groupSalt);
         data = await this.encrypt(groupKey, data);
         filename = `${hashfunc(uintConcat(salt, groupKey))}.json.enc`;
       }
@@ -941,7 +940,7 @@ class GravityProtocol extends EventEmitter {
     //  useful if you update your profile with a DM for one person; no need to alert everyone else
     // appends `additionalData` to the post, for if you want to send extra stuff (like what changed)
     this.publishProfile = async (/* optional */ addrs, additionalData) => {
-      const myIpnsId = await this.getIpnsId();
+      const myIpnsId = this.getIpnsId();
       const privateKey = myPeerId.privKey;
       const publicKey = myPeerId.pubKey;
 
@@ -1006,7 +1005,7 @@ class GravityProtocol extends EventEmitter {
 
       let groupKey;
       try {
-        groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
+        groupKey = await this.getGroupKey(this.getPublicKey(), groupSalt);
       } catch (err) {
         throw new Error(`Got the following error while getting group key for post: ${err}`);
       }
@@ -1083,10 +1082,10 @@ class GravityProtocol extends EventEmitter {
 
       const path = this.setupPostMetadata(groupSalt, parents, tags);
 
-      const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
+      const groupKey = await this.getGroupKey(this.getPublicKey(), groupSalt);
       const contentEnc = await this.encrypt(groupKey, text);
       await writeFile(node, `${await path}/main.txt`, contentEnc);
-      return `/ipns/${await this.getIpnsId()}/${await path}`;
+      return `/ipns/${this.getIpnsId()}/${await path}`;
     };
 
     // for posting reacts
@@ -1105,12 +1104,12 @@ class GravityProtocol extends EventEmitter {
 
       const path = this.setupPostMetadata(groupSalt, parents);
 
-      const groupKey = await this.getGroupKey(await this.getPublicKey(), groupSalt);
+      const groupKey = await this.getGroupKey(this.getPublicKey(), groupSalt);
       const contentEnc = this.encrypt(groupKey, link);
       // note: .lenc is a new file type, for encrypted ipfs links
       //  use sparingly, because it won't be pinned with the profile
       await writeFile(node, `${await path}/main.lenc`, await contentEnc);
-      return `/ipns/${await this.getIpnsId()}/${await path}`;
+      return `/ipns/${this.getIpnsId()}/${await path}`;
     };
 
     // label is how people will refer to it (e.g. :facepalm-7:)
@@ -1126,7 +1125,7 @@ class GravityProtocol extends EventEmitter {
         console.warn('Filtered out illegal label chars in createNewReact');
       }
 
-      const groupKey = this.getGroupKey(await this.getPublicKey(), groupSalt);
+      const groupKey = this.getGroupKey(this.getPublicKey(), groupSalt);
       // used twice, for different non-cryptographic things so it's ok
       const randomString = sodium.to_base64(sodium.randombytes_buf(10));
 
@@ -1168,7 +1167,7 @@ class GravityProtocol extends EventEmitter {
     // this is what you share to get people to add you
     // TODO: make it an actual URL-safe link
     this.getMagicLink = async () => JSON.stringify({
-      publicKey: await this.getPublicKey(),
+      publicKey: this.getPublicKey(),
       addresses: (await this.getIpfsNodeInfo()).addresses,
     });
 
@@ -1356,7 +1355,7 @@ class GravityProtocol extends EventEmitter {
         ipnsId = this.pubkeyToIpnsId(publicKey);
       }
 
-      if (ipnsId === (await this.getIpnsId())) {
+      if (ipnsId === (this.getIpnsId())) {
         return `/ipfs/${await this.getMyProfileHash()}`;
       }
 
@@ -1483,7 +1482,7 @@ class GravityProtocol extends EventEmitter {
       await this.ready;
 
       // sanity check
-      if ((await this.getIpnsId()) !== this.pubkeyToIpnsId(await this.getPublicKey())) {
+      if ((this.getIpnsId()) !== this.pubkeyToIpnsId(this.getPublicKey())) {
         throw new Error('WATCH OUT! pubkeyToIpnsId IS OUT OF DATE');
       }
 
@@ -1505,7 +1504,7 @@ class GravityProtocol extends EventEmitter {
             } else if (split[0] === 'g') { // it's a get, need to respond
               // TODO: responding blindly reveals who we're friends with (by what's in the cache).
               //  maybe don't respond to all of them
-              if (split[1] === (await this.getIpnsId())) {
+              if (split[1] === (this.getIpnsId())) {
                 // if they're asking for mine, might as well give the most up to date answer
                 await this.publishProfile([]);
               }
