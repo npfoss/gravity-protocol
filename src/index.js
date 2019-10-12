@@ -423,7 +423,7 @@ class GravityProtocol extends EventEmitter {
     // clears device keys, makes a new master key, and returns a new device key with access to it
     // also deletes everything because without the master key it's useless anyways
     this.deleteAllAndCreateNewIdentity = async () => {
-      console.warn('nuking everything');
+      console.warn('restarting from clean slate');
       // the line of no return:
       await Promise.all([
         node.files.rm('/device-keys', { recursive: true }).catch(() => {}),
