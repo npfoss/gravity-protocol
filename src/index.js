@@ -18,6 +18,9 @@ const EventEmitter = require('events');
       }
  */
 
+const pjson = require('../package.json');
+const GRAVITY_VERSION = pjson.version;
+
 
 // logging
 const LOG_MESSAGES = true;
@@ -436,6 +439,9 @@ class GravityProtocol extends EventEmitter {
       // Note: to start from scratch now you'll need to clear cookies too
       //  (if that's where you're storing device keys)
 
+      // record protocol version
+      const prom1 = writeFile(node, '/version.txt', GRAVITY_VERSION);
+
       // make the new keys
       const masterKey = sodium.crypto_secretbox_keygen();
       // new identity
@@ -451,12 +457,13 @@ class GravityProtocol extends EventEmitter {
       // save it in the profile
       const buf = myPeerId.marshalPrivKey(); // this is a Buffer
       const enc = await this.encrypt(masterKey, sodium.to_base64(buf));
-      const prom = writeFile(node, '/private/key', enc);
+      const prom2 = writeFile(node, '/private/key', enc);
 
       this.deviceKey = await this.createNewDeviceKey('first key', masterKey);
 
       masterKeyCache = masterKey;
-      await prom;
+      await prom1;
+      await prom2;
 
       return this.deviceKey;
     };
