@@ -617,6 +617,9 @@ class GravityProtocol extends EventEmitter {
     };
 
     // returns the info JSON for the given group
+    // remember, the members listed here only exist for non-anonymous groups
+    //  and also may not be perfectly up to date with what's true.
+    //  use getGroupMembership for source-of-truth membership of your own groups
     this.getGroupInfo = async (groupSalt, publicKey) => {
       const groupKey = this.getGroupKey(publicKey, groupSalt);
       let enc;
@@ -632,6 +635,23 @@ class GravityProtocol extends EventEmitter {
         throw err;
       }
       return JSON.parse(await this.decrypt(await groupKey, enc));
+    };
+
+    // get group membership from the source of truth (only works for your own groups)
+    this.getGroupMembership = async (groupSalt) => {
+      const mk = await this.getMasterKey();
+      let enc;
+      try {
+        enc = await cat(`/groups/${groupSalt}/.metadata/membership-status.json.enc`);
+      } catch (err) {
+        if (err.message.includes('exist')) {
+          console.warn('Got this error in getGroupMembership which probably means there was no member list:', err.message);
+          return {};
+        }
+        console.warn('unexpected error in getGroupMembership');
+        throw err;
+      }
+      return JSON.parse(await this.decrypt(await mk, enc));
     };
 
     /*  .cmd type posts are for updating group state.
@@ -703,18 +723,18 @@ class GravityProtocol extends EventEmitter {
 
       // now we can finally set the nicknames
       const groupInfo = await this.getGroupInfo(groupSalt, myPublicKey);
-      if (groupInfo.members === undefined) {
-        groupInfo.members = {};
+      if (groupInfo.nicknames === undefined) {
+        groupInfo.nicknames = {};
       }
 
       const namesChanged = Object.keys(publicKeyToName).filter(pk =>
         // eslint-disable-next-line implicit-arrow-linebreak
-        publicKeyToName[pk] !== groupInfo.members[pk]);
+        publicKeyToName[pk] !== groupInfo.nicknames[pk]);
       if (namesChanged.length === 0) {
         return groupInfo;
       }
 
-      Object.assign(groupInfo.members, publicKeyToName);
+      Object.assign(groupInfo.nicknames, publicKeyToName);
       const enc = await this.encrypt(groupKey, JSON.stringify(groupInfo));
       await writeFile(node, `/groups/${groupSalt}/info.json.enc`, enc);
 
@@ -748,14 +768,14 @@ class GravityProtocol extends EventEmitter {
       const groupKey = sodium.crypto_secretbox_keygen();
       const groupdir = `/groups/${sodium.to_base64(salt)}`;
 
-      // create folder for this group
-      await node.files.mkdir(groupdir, { parents: true });
+      // create folder for this group and its metadata at the same time
+      await node.files.mkdir(`${groupdir}/.metadata`, { parents: true });
 
       const message = JSON.stringify([sodium.to_base64(groupKey)]);
 
       const promises = [];
 
-      // also add myself to the group
+      // add myself to the group
       const sharedKey = await this.getMasterKey();
       const ciphertext = await this.encrypt(sharedKey, message);
       promises.push(writeFile(node, `${groupdir}/me`, ciphertext));
@@ -770,7 +790,10 @@ class GravityProtocol extends EventEmitter {
 
       await this.addToGroup(sodium.to_base64(salt), publicKeys);
 
-      // now set all nicknames to "" so everyone knows who's in the group
+      // TODO: if it's non-anonymous, set my nickname to ''
+      //  (Not that it hides my membership (I made it, after all),
+      //   there just aren't nicknames for anonymous groups.
+      //   The place to change your name for such groups is a group-specific bio)
       const nicknames = {};
       nicknames[mypk] = '';
       await this.setNicknames(sodium.to_base64(salt), nicknames);
@@ -779,7 +802,7 @@ class GravityProtocol extends EventEmitter {
     };
 
     // salt should be a string
-    this.addToGroup = async (salt, publicKeys_) => {
+    this.addToGroup = async (salt, publicKeys_, /* optional */ { anonymous } = {}) => {
       const mypk = this.getPublicKey();
       let publicKeys = publicKeys_.filter(k => k !== mypk);
 
@@ -801,6 +824,7 @@ class GravityProtocol extends EventEmitter {
 
       const files = (await ls(groupdir)).map(f => f.name);
 
+      const pkNameMap = {};
       const promises = publicKeys.map(async (pk) => {
         const sharedKey = sodium.from_base64(contacts[pk]['my-secret']);
         const name = hashfunc(uintConcat(sodium.from_base64(salt), sharedKey));
@@ -808,6 +832,7 @@ class GravityProtocol extends EventEmitter {
         if (files.includes(name)) return undefined;
         // need to record the ones who weren't by returning pk
         const ciphertext = await this.encrypt(sharedKey, message);
+        pkNameMap[pk] = name;
         await writeFile(node, `${groupdir}/${name}`, ciphertext);
         return pk;
       });
@@ -819,15 +844,25 @@ class GravityProtocol extends EventEmitter {
         return;
       }
 
+      // this is the real source of truth membership which is quickly verifiable
+      // also useful because you want to be able to remove people from the group without forgetting
+      //  about their old messages, so you need to keep a record of that somewhere
+      const membership = await this.getGroupMembership(salt);
+      Object.assign(membership, pkNameMap);
+      const enc = await this.encrypt(await this.getMasterKey(), JSON.stringify(membership));
+      await writeFile(node, `${groupdir}/.metadata/membership-status.json.enc`, enc);
+
       // send a .cmd to the group alerting others to the change
       await postCmd(salt, 'addToGroup', [publicKeys]);
 
-      // now set all nicknames to "" so everyone knows who's in the group
-      const nicknames = {};
-      publicKeys.forEach((k) => {
-        nicknames[k] = '';
-      });
-      await this.setNicknames(salt, nicknames);
+      if (!anonymous) {
+        // now set all nicknames to "" so everyone knows who's in the group
+        const nicknames = {};
+        publicKeys.forEach((k) => {
+          nicknames[k] = '';
+        });
+        await this.setNicknames(salt, nicknames);
+      }
     };
 
     // sets the 'name' field in the group info
