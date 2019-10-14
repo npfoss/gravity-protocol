@@ -536,6 +536,7 @@ class GravityProtocol extends EventEmitter {
       if (publicKey === this.getPublicKey()) {
         throw new Error('Tried to add self as subscriber');
       }
+      await encAsymm(publicKey, 'testing'); // test if it's a valid key before adding it and stuff
 
       const contacts = await this.getContacts();
       let mySecret;
