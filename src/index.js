@@ -1217,18 +1217,21 @@ class GravityProtocol extends EventEmitter {
       const pubkey = magic.publicKey;
       await this.addSubscriber(pubkey);
 
-      const contacts = await this.getContacts();
+      if (magic.addresses) {
+        // update addresses in contacts
+        const contacts = await this.getContacts();
 
-      if (contacts[pubkey].addresses) {
-        // remove duplicates
-        // eslint-disable-next-line max-len
-        contacts[pubkey].addresses = [...new Set(magic.addresses.concat(contacts[pubkey].addresses))];
-      } else {
-        contacts[pubkey].addresses = magic.addresses;
+        if (contacts[pubkey].addresses) {
+          // remove duplicates
+          // eslint-disable-next-line max-len
+          contacts[pubkey].addresses = [...new Set(magic.addresses.concat(contacts[pubkey].addresses))];
+        } else {
+          contacts[pubkey].addresses = magic.addresses;
+        }
+
+        const encContacts = this.encrypt(await this.getMasterKey(), JSON.stringify(contacts));
+        await writeFile(node, '/private/contacts.json.enc', await encContacts);
       }
-
-      const encContacts = this.encrypt(await this.getMasterKey(), JSON.stringify(contacts));
-      await writeFile(node, '/private/contacts.json.enc', await encContacts);
     };
 
     // try connecting to all your friends
