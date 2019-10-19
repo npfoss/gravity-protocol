@@ -516,7 +516,7 @@ class GravityProtocol extends EventEmitter {
     this.setAddrs = async (publicKey, newAddrs) => {
       const contacts = await this.getContacts();
       if (Object.prototype.toString.call(newAddrs) !== '[object Array]') {
-        throw new Error(`setAddrs expects newAddrs to be array. got: ${newAddrs}`);
+        throw new Error(`setAddrs expects newAddrs to be array. got: ${newAddrs} for pubkey: ${publicKey}`);
       }
       if (!(publicKey in contacts)) {
         throw new Error(`tried to set addr of key not in contacts: ${publicKey}`);
