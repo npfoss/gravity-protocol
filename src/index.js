@@ -1202,19 +1202,38 @@ class GravityProtocol extends EventEmitter {
       return `/ipfs/${hash}`;
     };
 
+    // useful for externally generating an ingestible magic link from a pubkey
+    this.generateMagicLink = ({ publicKey, addresses } = {}) => {
+      const obj = {};
+      if (publicKey !== undefined) obj.publicKey = publicKey;
+      if (addresses !== undefined) obj.addresses = addresses;
+
+      return 'https://gravitynet.io/magic/'.concat(sodium.to_base64(JSON.stringify(obj)));
+    };
+
     // this is what you share to get people to add you
     // TODO: make it an actual URL-safe link
-    this.getMagicLink = async () => JSON.stringify({
+    this.getMagicLink = async () => this.generateMagicLink({
       publicKey: this.getPublicKey(),
       addresses: (await this.getIpfsNodeInfo()).addresses,
     });
 
-    this.addViaMagicLink = async (magicLink) => {
-      const magic = JSON.parse(magicLink);
+    // useful for external dry runs where you don't want to add them yet
+    // returns the expected `magic` object
+    this.parseAndValidateMagicLink = (magicLink) => {
+      const magicString = magicLink.slice(magicLink.lastIndexOf('/') + 1);
+      const magic = JSON.parse(sodium.to_string(sodium.from_base64(magicString)));
 
-      if (!('publicKey' in magic)) {
-        throw new Error('magic link missing some info');
+      if (!('publicKey' in magic) || typeof magic.publicKey !== 'string') {
+        throw new Error('magic link missing publicKey');
       }
+
+      return magic;
+    };
+
+    this.addViaMagicLink = async (magicLink) => {
+      const magic = this.parseAndValidateMagicLink(magicLink);
+
       const pubkey = magic.publicKey;
       await this.addSubscriber(pubkey);
 
