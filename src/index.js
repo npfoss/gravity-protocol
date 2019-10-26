@@ -653,7 +653,7 @@ class GravityProtocol extends EventEmitter {
         enc = await cat(`/groups/${groupSalt}/.metadata/membership-status.json.enc`);
       } catch (err) {
         if (err.message.includes('exist')) {
-          console.warn('Got this error in getGroupMembership which probably means there was no member list:', err.message);
+          console.log('Got this error in getGroupMembership which probably means there was no member list:', err.message);
           return {};
         }
         console.warn('unexpected error in getGroupMembership');
