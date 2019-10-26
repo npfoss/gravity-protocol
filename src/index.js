@@ -1213,7 +1213,7 @@ class GravityProtocol extends EventEmitter {
       if (publicKey !== undefined) obj.publicKey = publicKey;
       if (addresses !== undefined) obj.addresses = addresses;
 
-      return 'https://gravitynet.io/magic/'.concat(sodium.to_base64(JSON.stringify(obj)));
+      return 'https://www.gravitynet.io/magic/'.concat(sodium.to_base64(JSON.stringify(obj)));
     };
 
     // this is what you share to get people to add you
