@@ -99,11 +99,13 @@ const encAsymm = async (publicKey, message) => {
 
   const pk = libp2pcrypto.keys.unmarshalPublicKey(Buffer.from(publicKey, 'base64'));
 
-  if (pk.constructor.name === 'Ed25519PublicKey') {
+  if (pk._key.length === 32) { // eslint-disable-line no-underscore-dangle
+    // probably ed25519... TODO: this, but better
     // eslint-disable-next-line no-underscore-dangle
     const curveKey = sodium.crypto_sign_ed25519_pk_to_curve25519(pk._key);
     return sodium.crypto_box_seal(message, curveKey);
-  } if (pk.constructor.name === 'RsaPublicKey') {
+  } if (pk._key.length === undefined) { // eslint-disable-line no-underscore-dangle
+    // probably RSA... TODO: this, but better
     const tempPub = pk._key; // eslint-disable-line no-underscore-dangle
 
     const key = new NodeRSA();
@@ -114,6 +116,8 @@ const encAsymm = async (publicKey, message) => {
 
     return key.encrypt(message);
   }
+  console.error('bad key in encAsymm');
+  console.error(pk);
   throw new Error('unknown key type in encAsymm');
 };
 
@@ -121,7 +125,8 @@ const encAsymm = async (publicKey, message) => {
 // returns decrypted stuff as buffer
 // supports: RSA, Ed25519 (via Curve25519),
 const decAsymm = async (peerId, ciphertext) => {
-  if (peerId.pubKey.constructor.name === 'Ed25519PublicKey') {
+  if (peerId.pubKey._key.length === 32) { // eslint-disable-line no-underscore-dangle
+    // probably ed25519... TODO: this, but better
     // eslint-disable-next-line no-underscore-dangle
     const sk = sodium.crypto_sign_ed25519_sk_to_curve25519(peerId.privKey._key);
     // eslint-disable-next-line no-underscore-dangle
@@ -129,7 +134,8 @@ const decAsymm = async (peerId, ciphertext) => {
     // not sure why it needs both but whatever
 
     return sodium.crypto_box_seal_open(ciphertext, pk, sk);
-  } if (peerId.pubKey.constructor.name === 'RsaPublicKey') {
+  } if (peerId.pubKey._key.length === undefined) { // eslint-disable-line no-underscore-dangle
+    // probably RSA... TODO: this, but better
     const sk = peerId.privKey._key; // eslint-disable-line no-underscore-dangle
     const privkey = new NodeRSA();
     privkey.importKey({
