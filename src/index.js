@@ -1,4 +1,3 @@
-
 const IPFS = require('ipfs');
 const { crypto: libp2pcrypto, isIPFS } = require('ipfs');
 const PeerId = require('peer-id');
@@ -17,6 +16,16 @@ const EventEmitter = require('events');
         postData: <whatever else came with the 'post' message>,
       }
  */
+
+/* ***** IMPORTANT NOTE ON BASE64 ENCODING *****
+ * There are two main ways to do it, using +/ or -_ as the extra two characters.
+ * The former is default for many things for historical reasons, including IPFS/libp2p.
+ * However, the latter (-_) is URL- and filename-safe, which makes it the best choice for this.
+ * Therefore, EVERYTHING base64 encoded here should ALWAYS be in that form!
+ * sodium.to_base64 is the ONLY reliable way to do this encoding.
+ * Buffer.to will NOT do that, though Buffer.from(x, 'base64') will correctly decode it.
+ */
+
 
 const pjson = require('../package.json');
 
@@ -67,16 +76,6 @@ const uintConcat = (a, b) => {
 
 // sleep nonblocking
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-// for base64 string conversion to/from url safe strings (for pubkeys)
-// copies the format used by libsodium
-/* eslint-disable */
-// RE-ENABLE ONCE THEY'RE USED
-const toURL64replacements = { '+': '-', '/': '_', '=': '' };
-const fromURL64replacements = { '-': '+', _: '/' };
-const base64toURL = s => s.replace(/[+/=]+/g, c => toURL64replacements[c]);
-const URLtoBase64 = s => `${s.replace(/[._-]+/g, c => fromURL64replacements[c])}=`;
-/* eslint-enable */
 
 // TODO: might need to use locks
 const writeFile = (ipfs, path, data) => // eslint-disable-next-line implicit-arrow-linebreak
