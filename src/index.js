@@ -223,6 +223,7 @@ class GravityProtocol extends EventEmitter {
       });
 
     const node = options.LIGHT ? { ready: true } : new IPFS();
+    this.ipfs = node;
 
     // make sure to await this before doing anything!
     this.ready = Promise.all([node.ready, sodium.ready, initPromise]);
