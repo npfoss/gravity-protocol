@@ -210,7 +210,8 @@ class GravityProtocol extends EventEmitter {
     const MIN_IPNS_OUTDATEDNESS = options.MIN_IPNS_OUTDATEDNESS || 1000;
 
     const node = options.LIGHT ? { ready: true } : new IPFS();
-    // expose ipfs node in case that's useful. be careful though, it would be easy to mess things up
+    // expose ipfs node in case that's useful
+    // be careful though, it would be easy to accidentally corrupt the profile or something
     this.ipfs = node;
 
     // set up identity and stuff
