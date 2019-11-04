@@ -168,7 +168,7 @@ const returnSuccessful = (promises) => {
     );
   })).then(
     // If '.all' resolved, we've just got an array of errors.
-    errors => Promise.reject(errors),
+    errors => Promise.reject(errors[0]),
     // If '.all' rejected, we've got the result we wanted.
     val => Promise.resolve(val),
   );
@@ -208,6 +208,7 @@ class GravityProtocol extends EventEmitter {
     // useful for heavy-handedly cutting down on rapidly repeated lookups for different purposes
     // setting it to zero should essentially disable it
     const MIN_IPNS_OUTDATEDNESS = options.MIN_IPNS_OUTDATEDNESS || 1000;
+    const ALWAYS_ADD_ADDRS = options.ALWAYS_ADD_ADDRS || [];
 
     const node = options.LIGHT ? { ready: true } : new IPFS();
     // expose ipfs node in case that's useful
@@ -588,7 +589,7 @@ class GravityProtocol extends EventEmitter {
       const promises = lst.map(async (obj) => {
         const ciphertext = await cat(obj.hash);
 
-        // RSA lib will err if key is wrong. this is good. it gets trapped in the promise correctly
+        // will error if key is wrong. this is good. it gets trapped in the promise correctly
         const res = sodium.to_string(await decAsymm(myPeerId, ciphertext));
 
         if (res.slice(0, 5) !== 'Hello') {
@@ -1010,7 +1011,7 @@ class GravityProtocol extends EventEmitter {
           (contacts[k].addresses ? contacts[k].addresses : [])).flat();
       }
 
-      addrsToTry.forEach((addr) => {
+      addrsToTry.concat(ALWAYS_ADD_ADDRS).forEach((addr) => {
         this.sendToPeer(addr, message)
           .catch((err) => {
             console.log(`failed to publish to peer: ${addr}`);
@@ -1272,6 +1273,10 @@ class GravityProtocol extends EventEmitter {
 
       const contacts = await this.getContacts();
       console.log('Attempting to connect to many old addresses...');
+      ALWAYS_ADD_ADDRS.forEach((addr) => {
+        this.connectToAddr(addr)
+          .catch(err => console.log(err.message));
+      });
       Object.keys(contacts).forEach((key) => {
         if (contacts[key].addresses) {
           contacts[key].addresses.forEach((addr) => {
@@ -1445,7 +1450,7 @@ class GravityProtocol extends EventEmitter {
         // eslint-disable-next-line implicit-arrow-linebreak
           (contacts[k].addresses ? contacts[k].addresses : [])).flat();
 
-        addrsToTry.forEach((addr) => {
+        addrsToTry.concat(ALWAYS_ADD_ADDRS).forEach((addr) => {
           this.sendToPeer(addr, `g ${ipnsId}`)
             .catch((err) => {
               console.log(`failed asking peer for help: ${addr}`, '\nerror msg:', err.message);
