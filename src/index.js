@@ -209,7 +209,12 @@ class GravityProtocol extends EventEmitter {
     // setting it to zero should essentially disable it
     const MIN_IPNS_OUTDATEDNESS = options.MIN_IPNS_OUTDATEDNESS || 1000;
 
-    const initPromise = sodium.ready
+    const node = options.LIGHT ? { ready: true } : new IPFS();
+    // expose ipfs node in case that's useful. be careful though, it would be easy to mess things up
+    this.ipfs = node;
+
+    // set up identity and stuff
+    const initPromise = Promise.all([node.ready, sodium.ready])
       .then(async () => {
         if ('deviceKey' in options) {
           // load the needful keys and stuff
@@ -222,11 +227,8 @@ class GravityProtocol extends EventEmitter {
         }
       });
 
-    const node = options.LIGHT ? { ready: true } : new IPFS();
-    this.ipfs = node;
-
     // make sure to await this before doing anything!
-    this.ready = Promise.all([node.ready, sodium.ready, initPromise]);
+    this.ready = initPromise;
 
     // NOT related to the IPFS node, this is your actual identity on the social network
     // it's also an instance of libp2p's PeerId though, for compatibility with IPNS
