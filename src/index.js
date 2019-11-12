@@ -1024,6 +1024,15 @@ class GravityProtocol extends EventEmitter {
 
     this.getIpfsPeers = async () => node.swarm.peers();
 
+    // When someone comes online after a while they'll often already have been blacklisted
+    //  after too many failed dials.
+    // This clears the blacklist for everyone you've tried to connect to this session, I think.
+    this.clearBlacklist = async () => {
+      const addrs = await node.swarm.addrs();
+      // eslint-disable-next-line no-underscore-dangle
+      addrs.map(peerInfo => node.libp2p._switch.dialer.clearBlacklist(peerInfo));
+    };
+
     // this function creates the correct folders and sets up all the metadata for a post
     // it DOES NOT write the post data itself (`content.[whatever]`)
     //    because that's going to be different for different posts (regular, react, etc)
