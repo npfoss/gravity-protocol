@@ -1030,7 +1030,7 @@ class GravityProtocol extends EventEmitter {
     this.clearBlacklist = async () => {
       const addrs = await node.swarm.addrs();
       // eslint-disable-next-line no-underscore-dangle
-      addrs.map(peerInfo => node.libp2p._switch.dialer.clearBlacklist(peerInfo));
+      addrs.map(peerInfo => node.libp2p._switch.dialer.clearDenylist(peerInfo));
     };
 
     // this function creates the correct folders and sets up all the metadata for a post

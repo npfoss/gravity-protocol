@@ -20,7 +20,7 @@
   "homepage": "https://www.gravitynet.io",
   "dependencies": {
     "buffer": "^5.2.1",
-    "ipfs": "^0.37.0",
+    "ipfs": "^0.38.1",
     "ipns": "^0.6.1",
     "libsodium-wrappers": "^0.7.4",
     "multihashes": "^0.4.15",
