@@ -201,6 +201,7 @@ class GravityProtocol extends EventEmitter {
           MIN_IPNS_OUTDATEDNESS,
           deviceKey,
           LIGHT,
+          customSignalingServers,
     } */
 
     // when trying to lookup a profile hash, if the current record is within this many millis
@@ -209,8 +210,18 @@ class GravityProtocol extends EventEmitter {
     // setting it to zero should essentially disable it
     const MIN_IPNS_OUTDATEDNESS = options.MIN_IPNS_OUTDATEDNESS || 1000;
     const ALWAYS_ADD_ADDRS = options.ALWAYS_ADD_ADDRS || [];
+    let ipfsOptions = {};
+    if (options.customSignalingServers) {
+      ipfsOptions = {
+        config: {
+          Addresses: {
+            Swarm: options.customSignalingServers,
+          },
+        },
+      };
+    }
 
-    const node = options.LIGHT ? { ready: true } : new IPFS();
+    const node = options.LIGHT ? { ready: true } : new IPFS(ipfsOptions);
     // expose ipfs node in case that's useful
     // be careful though, it would be easy to accidentally corrupt the profile or something
     this.ipfs = node;
