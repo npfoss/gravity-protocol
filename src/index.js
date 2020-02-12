@@ -200,6 +200,7 @@ class GravityProtocol extends EventEmitter {
     /* options may contain: {
           MIN_IPNS_OUTDATEDNESS,
           deviceKey,
+          recoveryHash,  // in case we need to bootstrap the profile data from the network
           LIGHT,
           customSignalingServers,
     } */
@@ -232,6 +233,25 @@ class GravityProtocol extends EventEmitter {
         if ('deviceKey' in options) {
           // load the needful keys and stuff
           this.setDeviceKey(options.deviceKey);
+
+          // if we have a device key but MFS is empty, try to recover with profile hash
+          // TODO: hopefully temporary while there's a heavy dependence on MFS
+          if ((await node.files.ls('/')).length === 0 && options.recoveryHash) {
+            console.warn('empty MFS ahhh! (but we can recover)');
+            await sleep(2000); // to give us a chance to connect to some peers
+            // connect to the constant peer if possible
+            ALWAYS_ADD_ADDRS.forEach((addr) => {
+              this.connectToAddr(addr)
+                .catch((err) => {
+                  console.warn('failed to connect to an important one while bootstrapping');
+                  console.warn(err);
+                });
+            });
+            await sleep(2000); // to give us a chance to connect to some peers
+            // now copy the old pofile into MFS
+            await node.files.cp(`/ipfs/${options.recoveryHash}`, '/');
+          }
+
           await this.loadPeerId();
         } else {
           // without a device key we can't do anything, by design.
