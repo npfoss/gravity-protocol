@@ -1238,7 +1238,7 @@ class GravityProtocol extends EventEmitter {
       if (publicKey !== undefined) obj.publicKey = publicKey;
       if (addresses !== undefined) obj.addresses = addresses;
 
-      return 'https://magic.gravitynet.io/'.concat(sodium.to_base64(JSON.stringify(obj)));
+      return 'https://magic.gravitynet.io/?add='.concat(sodium.to_base64(JSON.stringify(obj)));
     };
 
     // this is what you share to get people to add you
@@ -1251,7 +1251,7 @@ class GravityProtocol extends EventEmitter {
     // useful for external dry runs where you don't want to add them yet
     // returns the expected `magic` object
     this.parseAndValidateMagicLink = (magicLink) => {
-      const magicString = magicLink.slice(magicLink.lastIndexOf('/') + 1);
+      const magicString = magicLink.slice(magicLink.lastIndexOf('=') + 1);
       const magic = JSON.parse(sodium.to_string(sodium.from_base64(magicString)));
 
       if (!('publicKey' in magic) || typeof magic.publicKey !== 'string') {
