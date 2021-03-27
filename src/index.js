@@ -662,6 +662,7 @@ class GravityProtocol extends EventEmitter {
     // Get group membership dict from the source of truth (only works for your own groups).
     // Maps public keys of the people in the group to either `name of the file with their group key`
     //  if they're in the group, or 'removed' if they were at some point in the group but no longer
+    // Does NOT include you, the current profile.
     this.getGroupMembership = async (groupSalt) => {
       const mk = await this.getMasterKey();
       let enc;
