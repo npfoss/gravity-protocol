@@ -1,3 +1,5 @@
+/* THE OLD VERSION -- will probably rope pieces in over time
+
 const IPFS = require("ipfs");
 const { crypto: libp2pcrypto, isIPFS } = require("ipfs");
 const PeerId = require("peer-id");
@@ -16,7 +18,7 @@ const EventEmitter = require("events");
         record: <the record itself>,
         postData: <whatever else came with the 'post' message>,
       }
- */
+* /
 
 /* ***** IMPORTANT NOTE ON BASE64 ENCODING *****
  * There are two main ways to do it, using +/ or -_ as the extra two characters.
@@ -25,7 +27,7 @@ const EventEmitter = require("events");
  * Therefore, EVERYTHING base64 encoded here should ALWAYS be in that form!
  * sodium.to_base64 is the ONLY reliable way to do this encoding.
  * Buffer.to will NOT do that, though Buffer.from(x, 'base64') will correctly decode it.
- */
+* /
 
 const pjson = require("../package.json");
 
@@ -89,7 +91,7 @@ based on this calculation:
 sqrt[2*2^(80)*10^(-12)] = 1.5 million
 with 80 bits (14 chars in base64) you can have about 1.5 mil groups/subscribers in your profile
   without the probability of collision exceeding one in a trillion
-*/
+* /
 const hashfunc = (message) => sodium.to_base64(sodium.crypto_generichash(10, Buffer.from(message)));
 
 // encrypt things with public keys
@@ -169,7 +171,7 @@ const decAsymm = async (peerId, ciphertext) => {
 
 // returns the one successful promise from a list, or rejects with list of errors
 // copied from: https://stackoverflow.com/a/37235274/7343159
-/* eslint-disable arrow-body-style */
+/* eslint-disable arrow-body-style* /
 const returnSuccessful = (promises) => {
   return Promise.all(
     promises.map((p) => {
@@ -188,11 +190,11 @@ const returnSuccessful = (promises) => {
     (val) => Promise.resolve(val),
   );
 };
-/* eslint-enable arrow-body-style */
+/* eslint-enable arrow-body-style* /
 
 // UUID generator, taken from
 //  https://stackoverflow.com/questions/105034/create-guid-uuid-in-javascript/2117523#2117523
-/* eslint-disable */
+/* eslint-disable* /
 function uuidv4() {
   return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c) =>
     (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16),
@@ -204,7 +206,7 @@ async function filter(arr, callback) {
   const fail = Symbol();
   return (await Promise.all(arr.map(async (item) => ((await callback(item)) ? item : fail)))).filter((i) => i !== fail);
 }
-/* eslint-enable */
+/* eslint-enable* /
 
 //*  the protocol
 class GravityProtocol extends EventEmitter {
@@ -216,7 +218,7 @@ class GravityProtocol extends EventEmitter {
           deviceKey,
           LIGHT,
           customSignalingServers,
-    } */
+    }* /
 
     // when trying to lookup a profile hash, if the current record is within this many millis
     //  of the current time, then the cached version is used instead.
@@ -710,7 +712,7 @@ class GravityProtocol extends EventEmitter {
      *    it should only happen as a byproduct of doing the state changes you're reporting.
      *
      *  Also, don't forget to check for these in your app and do something about them! (i.e. doCmd)
-     */
+    * /
     const postCmd = async (groupSalt, command, args) => {
       if (typeof command !== "string") {
         throw new Error("postCmd command should be a string");
@@ -801,7 +803,7 @@ class GravityProtocol extends EventEmitter {
     //      and it's important to categorize people (into friends, family, etc) as they come in.
     // returns group name/salt (same thing)
     // groupID is optional. useful if you're trying to semantically link this group to a friend's
-    this.createGroup = async (publicKeys_, /* optional */ groupID) => {
+    this.createGroup = async (publicKeys_, /* optional * / groupID) => {
       const mypk = this.getPublicKey();
       const publicKeys = publicKeys_.filter((k) => k !== mypk);
 
@@ -849,7 +851,7 @@ class GravityProtocol extends EventEmitter {
     };
 
     // salt should be a string
-    this.addToGroup = async (salt, publicKeys_, /* optional */ { anonymous } = {}) => {
+    this.addToGroup = async (salt, publicKeys_, /* optional * / { anonymous } = {}) => {
       const mypk = this.getPublicKey();
       let publicKeys = publicKeys_.filter((k) => k !== mypk);
 
@@ -1016,7 +1018,7 @@ class GravityProtocol extends EventEmitter {
     // publishes profile and alerts everyone in the list of addrs
     //  useful if you update your profile with a DM for one person; no need to alert everyone else
     // appends `additionalData` to the post, for if you want to send extra stuff (like what changed)
-    this.publishProfile = async (/* optional */ addrs, additionalData) => {
+    this.publishProfile = async (/* optional * / addrs, additionalData) => {
       const myIpnsId = this.getIpnsId();
       const privateKey = myPeerId.privKey;
       const publicKey = myPeerId.pubKey;
@@ -1073,7 +1075,7 @@ class GravityProtocol extends EventEmitter {
     //    that responsibilty lies with the caller as well
     // CAUTION: returned path is MFS (/posts/...), not a true path (/ipns/myId/posts/...)
     //    DO NOT USE THIS PATH except to write stuff into the folder
-    this.setupPostMetadata = async (groupSalt, /* optional  */ parents, tags) => {
+    this.setupPostMetadata = async (groupSalt, /* optional  * / parents, tags) => {
       const promisesToWaitFor = [];
 
       // validate inputs
@@ -1086,7 +1088,7 @@ class GravityProtocol extends EventEmitter {
           ideally the path to a post in some profile--
               should be of the form: /ipns/id-of-author/posts/year/month/day/group-secret-salt-hash
             but it could be useful to reply to arbitrary ipfs content so that's not enforced
-      */
+     * /
       if (parents !== undefined && parents.some((p) => !isIPFS.path(p))) {
         throw new Error("invalid parents passed to setupPostMetadata");
       }
@@ -1103,7 +1105,7 @@ class GravityProtocol extends EventEmitter {
           - ping an external server
           - reconcile with timestamps of recent posts
           - use a network-wide vector clock (not actually crazy maybe?)
-      */
+     * /
       const date = new Date();
 
       // generate directory if not already there
@@ -1126,7 +1128,7 @@ class GravityProtocol extends EventEmitter {
       //  so look at what's already there and increment by random value or something
       /* possibly useful but may have to update libsodium:
         console.log(sodium.sodium_bin2base64(271))
-      */
+     * /
       // note: unlike hashfunc, can change this naming system later and it doesn't matter
       const postdirname = sodium.to_base64(sodium.randombytes_buf(9));
 
@@ -1162,7 +1164,7 @@ class GravityProtocol extends EventEmitter {
 
     // for posting plaintext
     // returns path to post
-    this.postTxt = async (groupSalt, text, /* optional */ parents, tags) => {
+    this.postTxt = async (groupSalt, text, /* optional * / parents, tags) => {
       // validate. setupPostMetadata checks the rest
       if (typeof text !== "string") {
         throw new Error("postTxt requires content to be string");
@@ -1341,7 +1343,7 @@ class GravityProtocol extends EventEmitter {
           https://github.com/libp2p/js-libp2p/blob/master/examples/chat/src/dialer.js
           - don't forget to handle connections opening/closing randomly even if peers still online
             (https://github.com/ipfs/js-ipfs/issues/2288)
-      */
+     * /
       return new Promise((resolve, reject) => {
         node.libp2p.dialProtocol(addr, "/gravity/0.0.1", (err, conn) => {
           if (err) {
@@ -1426,7 +1428,7 @@ class GravityProtocol extends EventEmitter {
     this.handlePost = async (split) => this.ingestIpnsRecord(split[1], { postData: split.splice(2).join(" ") });
 
     // checks if the new record is valid and more recent. if so, updates our list
-    this.ingestIpnsRecord = async (newRecordProto64, /* optional */ additionalEventData = {}) => {
+    this.ingestIpnsRecord = async (newRecordProto64, /* optional * / additionalEventData = {}) => {
       // convenient to save the record as an object
       const newRecord = ipns.unmarshal(sodium.from_base64(newRecordProto64));
       newRecord.value = Buffer.from(newRecord.value).toString();
@@ -1665,3 +1667,5 @@ class GravityProtocol extends EventEmitter {
 }
 
 module.exports = GravityProtocol;
+
+ */
