@@ -1,7 +1,29 @@
-const f = (s: string) => {
-  console.log("it's working:" + s);
-};
-f("graaaaaaavity");
+import { IPFS, create } from "ipfs-core";
+
+import { deferredPromise } from "./utils";
+
+export class Gravity {
+  ready: Promise<void>;
+  ipfs?: IPFS;
+
+  constructor() {
+    const deferredProm = deferredPromise();
+    this.ready = deferredProm.promise;
+    this.init(deferredProm.resolve);
+  }
+
+  private async init(resolve: () => void) {
+    this.ipfs = await create();
+    const version = await this.ipfs.version();
+    console.log("Version:", version);
+
+    resolve();
+  }
+}
+
+export default async function main() {
+  new Gravity();
+}
 
 /*
 
