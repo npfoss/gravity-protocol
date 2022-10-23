@@ -1,13 +1,14 @@
-const IPFS = require('ipfs');
-const { crypto: libp2pcrypto, isIPFS } = require('ipfs');
-const PeerId = require('peer-id');
-const ipns = require('ipns');
-const multihashing = require('multihashing'); // need a more recent version than ipfs exports
-const multihash = require('multihashes'); // need a more recent version than ipfs exports
-const sodium = require('libsodium-wrappers');
-const NodeRSA = require('node-rsa');
-const pull = require('pull-stream');
-const EventEmitter = require('events');
+const IPFS = require("ipfs");
+const { crypto: libp2pcrypto, isIPFS } = require("ipfs");
+const PeerId = require("peer-id");
+const ipns = require("ipns");
+const multihashing = require("multihashing"); // need a more recent version than ipfs exports
+const multihash = require("multihashes"); // need a more recent version than ipfs exports
+const sodium = require("libsodium-wrappers");
+const NodeRSA = require("node-rsa");
+const pull = require("pull-stream");
+const EventEmitter = require("events");
+
 /* types of events:
  *  new-record: happens when a novel ipns record is ingested
       returns: {
@@ -26,15 +27,12 @@ const EventEmitter = require('events');
  * Buffer.to will NOT do that, though Buffer.from(x, 'base64') will correctly decode it.
  */
 
-
-const pjson = require('../package.json');
+const pjson = require("../package.json");
 
 const GRAVITY_VERSION = pjson.version;
 
-
 // logging
 const LOG_MESSAGES = true;
-
 
 //*  UTILS
 
@@ -45,7 +43,7 @@ const FILE_TYPES = {
 // source: https://github.com/ipfs/js-ipfs/blob/master/examples/browser-mfs/filetree.js
 const loadDirs = async function (ipfs, path) {
   const output = {};
-  const cleanpath = path.replace(/\/\/+/g, '/');
+  const cleanpath = path.replace(/\/\/+/g, "/");
 
   const contents = await ipfs.files.ls(cleanpath, {
     long: true,
@@ -75,11 +73,14 @@ const uintConcat = (a, b) => {
 };
 
 // sleep nonblocking
-const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // TODO: might need to use locks
-const writeFile = (ipfs, path, data) => // eslint-disable-next-line implicit-arrow-linebreak
-  ipfs.files.write(path, Buffer.from(data), { parents: true, create: true, truncate: true });
+const writeFile = (
+  ipfs,
+  path,
+  data, // eslint-disable-next-line implicit-arrow-linebreak
+) => ipfs.files.write(path, Buffer.from(data), { parents: true, create: true, truncate: true });
 
 // for convenience and clarity since this gets used a lot
 // returns base64 string
@@ -89,7 +90,7 @@ sqrt[2*2^(80)*10^(-12)] = 1.5 million
 with 80 bits (14 chars in base64) you can have about 1.5 mil groups/subscribers in your profile
   without the probability of collision exceeding one in a trillion
 */
-const hashfunc = message => sodium.to_base64(sodium.crypto_generichash(10, Buffer.from(message)));
+const hashfunc = (message) => sodium.to_base64(sodium.crypto_generichash(10, Buffer.from(message)));
 
 // encrypt things with public keys
 // returns ciphertext as buffer
@@ -97,35 +98,42 @@ const hashfunc = message => sodium.to_base64(sodium.crypto_generichash(10, Buffe
 const encAsymm = async (publicKey, message) => {
   // expects publicKey to be a base64-encoded IPFS-protobuf-encoded public key
 
-  const pk = libp2pcrypto.keys.unmarshalPublicKey(Buffer.from(publicKey, 'base64'));
+  const pk = libp2pcrypto.keys.unmarshalPublicKey(Buffer.from(publicKey, "base64"));
 
-  if (pk._key.length === 32) { // eslint-disable-line no-underscore-dangle
+  if (pk._key.length === 32) {
+    // eslint-disable-line no-underscore-dangle
     // probably ed25519... TODO: this, but better
     // eslint-disable-next-line no-underscore-dangle
     const curveKey = sodium.crypto_sign_ed25519_pk_to_curve25519(pk._key);
     return sodium.crypto_box_seal(message, curveKey);
-  } if (pk._key.length === undefined) { // eslint-disable-line no-underscore-dangle
+  }
+  if (pk._key.length === undefined) {
+    // eslint-disable-line no-underscore-dangle
     // probably RSA... TODO: this, but better
     const tempPub = pk._key; // eslint-disable-line no-underscore-dangle
 
     const key = new NodeRSA();
-    key.importKey({
-      n: Buffer.from(tempPub.n, 'base64'),
-      e: Buffer.from(tempPub.e, 'base64'),
-    }, 'components-public');
+    key.importKey(
+      {
+        n: Buffer.from(tempPub.n, "base64"),
+        e: Buffer.from(tempPub.e, "base64"),
+      },
+      "components-public",
+    );
 
     return key.encrypt(message);
   }
-  console.error('bad key in encAsymm');
+  console.error("bad key in encAsymm");
   console.error(pk);
-  throw new Error('unknown key type in encAsymm');
+  throw new Error("unknown key type in encAsymm");
 };
 
 // decrypt with your private key
 // returns decrypted stuff as buffer
 // supports: RSA, Ed25519 (via Curve25519),
 const decAsymm = async (peerId, ciphertext) => {
-  if (peerId.pubKey._key.length === 32) { // eslint-disable-line no-underscore-dangle
+  if (peerId.pubKey._key.length === 32) {
+    // eslint-disable-line no-underscore-dangle
     // probably ed25519... TODO: this, but better
     // eslint-disable-next-line no-underscore-dangle
     const sk = sodium.crypto_sign_ed25519_sk_to_curve25519(peerId.privKey._key);
@@ -134,43 +142,50 @@ const decAsymm = async (peerId, ciphertext) => {
     // not sure why it needs both but whatever
 
     return sodium.crypto_box_seal_open(ciphertext, pk, sk);
-  } if (peerId.pubKey._key.length === undefined) { // eslint-disable-line no-underscore-dangle
+  }
+  if (peerId.pubKey._key.length === undefined) {
+    // eslint-disable-line no-underscore-dangle
     // probably RSA... TODO: this, but better
     const sk = peerId.privKey._key; // eslint-disable-line no-underscore-dangle
     const privkey = new NodeRSA();
-    privkey.importKey({
-      n: Buffer.from(sk.n, 'base64'),
-      e: Buffer.from(sk.e, 'base64'),
-      d: Buffer.from(sk.d, 'base64'),
-      p: Buffer.from(sk.p, 'base64'),
-      q: Buffer.from(sk.q, 'base64'),
-      dmp1: Buffer.from(sk.dp, 'base64'),
-      dmq1: Buffer.from(sk.dq, 'base64'),
-      coeff: Buffer.from(sk.qi, 'base64'),
-    }, 'components');
+    privkey.importKey(
+      {
+        n: Buffer.from(sk.n, "base64"),
+        e: Buffer.from(sk.e, "base64"),
+        d: Buffer.from(sk.d, "base64"),
+        p: Buffer.from(sk.p, "base64"),
+        q: Buffer.from(sk.q, "base64"),
+        dmp1: Buffer.from(sk.dp, "base64"),
+        dmq1: Buffer.from(sk.dq, "base64"),
+        coeff: Buffer.from(sk.qi, "base64"),
+      },
+      "components",
+    );
 
     return privkey.decrypt(ciphertext);
   }
-  throw new Error('unrecognized PeerId key type in decAsymm');
+  throw new Error("unrecognized PeerId key type in decAsymm");
 };
 
 // returns the one successful promise from a list, or rejects with list of errors
 // copied from: https://stackoverflow.com/a/37235274/7343159
 /* eslint-disable arrow-body-style */
 const returnSuccessful = (promises) => {
-  return Promise.all(promises.map((p) => {
-    // If a request fails, count that as a resolution so it will keep
-    // waiting for other possible successes. If a request succeeds,
-    // treat it as a rejection so Promise.all immediately bails out.
-    return p.then(
-      val => Promise.reject(val),
-      err => Promise.resolve(err),
-    );
-  })).then(
+  return Promise.all(
+    promises.map((p) => {
+      // If a request fails, count that as a resolution so it will keep
+      // waiting for other possible successes. If a request succeeds,
+      // treat it as a rejection so Promise.all immediately bails out.
+      return p.then(
+        (val) => Promise.reject(val),
+        (err) => Promise.resolve(err),
+      );
+    }),
+  ).then(
     // If '.all' resolved, we've just got an array of errors.
-    errors => Promise.reject(errors[0]),
+    (errors) => Promise.reject(errors[0]),
     // If '.all' rejected, we've got the result we wanted.
-    val => Promise.resolve(val),
+    (val) => Promise.resolve(val),
   );
 };
 /* eslint-enable arrow-body-style */
@@ -179,18 +194,17 @@ const returnSuccessful = (promises) => {
 //  https://stackoverflow.com/questions/105034/create-guid-uuid-in-javascript/2117523#2117523
 /* eslint-disable */
 function uuidv4() {
-  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
-    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
-  )
+  return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c) =>
+    (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))).toString(16),
+  );
 }
 
 // async filtering, courtesy of https://stackoverflow.com/a/46842181/7343159
 async function filter(arr, callback) {
   const fail = Symbol();
-  return (await Promise.all(arr.map(async item => ((await callback(item)) ? item : fail)))).filter(i => i !== fail);
+  return (await Promise.all(arr.map(async (item) => ((await callback(item)) ? item : fail)))).filter((i) => i !== fail);
 }
 /* eslint-enable */
-
 
 //*  the protocol
 class GravityProtocol extends EventEmitter {
@@ -227,18 +241,17 @@ class GravityProtocol extends EventEmitter {
     this.ipfs = node;
 
     // set up identity and stuff
-    const initPromise = Promise.all([node.ready, sodium.ready])
-      .then(async () => {
-        if ('deviceKey' in options) {
-          // load the needful keys and stuff
-          this.setDeviceKey(options.deviceKey);
-          await this.loadPeerId();
-        } else {
-          // without a device key we can't do anything, by design.
-          // have to start over or it's useless
-          await this.deleteAllAndCreateNewIdentity();
-        }
-      });
+    const initPromise = Promise.all([node.ready, sodium.ready]).then(async () => {
+      if ("deviceKey" in options) {
+        // load the needful keys and stuff
+        this.setDeviceKey(options.deviceKey);
+        await this.loadPeerId();
+      } else {
+        // without a device key we can't do anything, by design.
+        // have to start over or it's useless
+        await this.deleteAllAndCreateNewIdentity();
+      }
+    });
 
     // make sure to await this before doing anything!
     this.ready = initPromise;
@@ -260,40 +273,41 @@ class GravityProtocol extends EventEmitter {
     // needed because I override the way ipns resolves
     // takes a /ipns/validID/whatever path and returns /ipfs/validHash/whatever
     const resolveIpnsLink = async (path, cacheOnly = true) => {
-      const split = path.slice(6).split('/');
+      const split = path.slice(6).split("/");
       const id = split[0];
       let base;
-      if (!cacheOnly || !(id in ipnsMap) || id === (this.getIpnsId())) {
+      if (!cacheOnly || !(id in ipnsMap) || id === this.getIpnsId()) {
         base = await this.lookupProfileHash({ ipnsId: id });
       } else {
         base = ipnsMap[id].value;
       }
       // TODO: make recursive if the result is another ipns link? maybe
-      return `${base}/${split.slice(1).join('/')}`;
+      return `${base}/${split.slice(1).join("/")}`;
     };
 
     // *** utils to handle basic ip[fn]s functions for any path ***
-    const readGenerator = (func, mfsFunc, name = 'readGenerator') => async function inner(path) {
-      try {
-        if (isIPFS.ipfsPath(path) || isIPFS.cid(path)) {
-          return await func(path);
+    const readGenerator = (func, mfsFunc, name = "readGenerator") =>
+      async function inner(path) {
+        try {
+          if (isIPFS.ipfsPath(path) || isIPFS.cid(path)) {
+            return await func(path);
+          }
+          if (/^\/ipns\//.test(path)) {
+            // it's an ipns link, need to resolve the ID
+            return await inner(await resolveIpnsLink(path));
+          }
+          if (/^\//.test(path)) {
+            // last resort... maybe MFS path?
+            return await mfsFunc(path);
+          }
+          throw new Error(`invalid path in ${name}: ${path}`);
+        } catch (err) {
+          console.log(`got this error in ${name} for path ${path}`);
+          throw err;
         }
-        if (/^\/ipns\//.test(path)) {
-          // it's an ipns link, need to resolve the ID
-          return await inner(await resolveIpnsLink(path));
-        }
-        if (/^\//.test(path)) {
-          // last resort... maybe MFS path?
-          return await mfsFunc(path);
-        }
-        throw new Error(`invalid path in ${name}: ${path}`);
-      } catch (err) {
-        console.log(`got this error in ${name} for path ${path}`);
-        throw err;
-      }
-    };
-    const cat = readGenerator(node.cat, node.files.read, 'cat');
-    const ls = readGenerator(node.ls, node.files.ls, 'ls');
+      };
+    const cat = readGenerator(node.cat, node.files.read, "cat");
+    const ls = readGenerator(node.ls, node.files.ls, "ls");
     this.ls = ls;
     this.cat = cat;
 
@@ -321,17 +335,17 @@ class GravityProtocol extends EventEmitter {
     // converts public keys (string or buffer) into the IPNS formatted short IDs
     this.pubkeyToIpnsId = (pk) => {
       let pkbuf = pk;
-      if (typeof pk === 'string' || pk instanceof String) {
-        pkbuf = Buffer.from(pk, 'base64');
+      if (typeof pk === "string" || pk instanceof String) {
+        pkbuf = Buffer.from(pk, "base64");
       }
 
       if (pk.length < 50) {
         // probably ed25519
         // ed25519 keys are short enough to inline, so that's standard
-        return multihash.toB58String(multihash.encode(pkbuf, 'identity'));
+        return multihash.toB58String(multihash.encode(pkbuf, "identity"));
       }
       // probably RSA key, use SHA2-256 by default anyways
-      return multihash.toB58String(multihashing(pkbuf, 'sha2-256'));
+      return multihash.toB58String(multihashing(pkbuf, "sha2-256"));
     };
 
     const ipnsIdToPubkeyCache = {};
@@ -346,9 +360,11 @@ class GravityProtocol extends EventEmitter {
         return ipnsIdToPubkeyCache[id];
       }
       // generate the chache for all contacts
-      await Promise.all(Object.keys(await this.getContacts()).map(async (pk) => {
-        ipnsIdToPubkeyCache[await this.pubkeyToIpnsId(pk)] = pk;
-      }));
+      await Promise.all(
+        Object.keys(await this.getContacts()).map(async (pk) => {
+          ipnsIdToPubkeyCache[await this.pubkeyToIpnsId(pk)] = pk;
+        }),
+      );
 
       if (id in ipnsIdToPubkeyCache) {
         return ipnsIdToPubkeyCache[id];
@@ -356,7 +372,7 @@ class GravityProtocol extends EventEmitter {
       throw new Error(`couldn't find public key for id: ${id}`);
     };
 
-    this.loadDirs = async path => loadDirs(node, path);
+    this.loadDirs = async (path) => loadDirs(node, path);
 
     // this is the key stored locally on the current device
     // used to get the master key to do everything else
@@ -364,7 +380,7 @@ class GravityProtocol extends EventEmitter {
 
     // for external use. you need to have a device key to unlock the master key used for everything
     this.setDeviceKey = (key) => {
-      if (typeof key === 'string') {
+      if (typeof key === "string") {
         this.deviceKey = sodium.from_base64(key);
       } else {
         this.deviceKey = key;
@@ -375,13 +391,13 @@ class GravityProtocol extends EventEmitter {
       const mk = this.getMasterKey();
       let enc;
       try {
-        enc = await cat('/device-keys/info.json.enc');
+        enc = await cat("/device-keys/info.json.enc");
       } catch (err) {
-        if (err.message.includes('exist')) {
+        if (err.message.includes("exist")) {
           console.log("got this error in getDeviceKeyInfo but we're handling it:", err.message);
           return {};
         }
-        console.warn('unexpected error in getDeviceKeyInfo');
+        console.warn("unexpected error in getDeviceKeyInfo");
         throw err;
       }
       return JSON.parse(await this.decrypt(await mk, enc));
@@ -391,7 +407,7 @@ class GravityProtocol extends EventEmitter {
       let mk = masterKey;
       if (!mk) mk = await this.getMasterKey();
       const enc = this.encrypt(mk, JSON.stringify(info));
-      return writeFile(node, '/device-keys/info.json.enc', await enc);
+      return writeFile(node, "/device-keys/info.json.enc", await enc);
     };
 
     this.setDeviceKeyDescription = async (key, desc) => {
@@ -428,12 +444,14 @@ class GravityProtocol extends EventEmitter {
 
     // loads your (encrpyted) identity from your profile
     this.loadPeerId = async () => {
-      const encProtobuf = await cat('/private/key');
+      const encProtobuf = await cat("/private/key");
       const mk = await this.getMasterKey();
       const buf = sodium.from_base64(await this.decrypt(mk, encProtobuf));
       myPeerId = await new Promise((resolve, reject) => {
         PeerId.createFromPrivKey(Buffer.from(buf), (err, rec) => {
-          if (err) { reject(err); }
+          if (err) {
+            reject(err);
+          }
           resolve(rec);
         });
       });
@@ -446,40 +464,44 @@ class GravityProtocol extends EventEmitter {
     // clears device keys, makes a new master key, and returns a new device key with access to it
     // also deletes everything because without the master key it's useless anyways
     this.deleteAllAndCreateNewIdentity = async () => {
-      console.warn('restarting from clean slate');
+      console.warn("restarting from clean slate");
       // the line of no return:
       await Promise.all([
-        node.files.rm('/device-keys', { recursive: true }).catch(() => {}),
-        node.files.rm('/posts', { recursive: true }).catch(() => {}),
-        node.files.rm('/bio', { recursive: true }).catch(() => {}),
-        node.files.rm('/groups', { recursive: true }).catch(() => {}),
-        node.files.rm('/subscribers', { recursive: true }).catch(() => {}),
-        node.files.rm('/private', { recursive: true }).catch(() => {}),
+        node.files.rm("/device-keys", { recursive: true }).catch(() => {}),
+        node.files.rm("/posts", { recursive: true }).catch(() => {}),
+        node.files.rm("/bio", { recursive: true }).catch(() => {}),
+        node.files.rm("/groups", { recursive: true }).catch(() => {}),
+        node.files.rm("/subscribers", { recursive: true }).catch(() => {}),
+        node.files.rm("/private", { recursive: true }).catch(() => {}),
       ]);
       // Note: to start from scratch now you'll need to clear cookies too
       //  (if that's where you're storing device keys)
 
       // record protocol version
-      const prom1 = writeFile(node, '/version.txt', GRAVITY_VERSION);
+      const prom1 = writeFile(node, "/version.txt", GRAVITY_VERSION);
 
       // make the new keys
       const masterKey = sodium.crypto_secretbox_keygen();
       // new identity
       myPeerId = await new Promise((resolve, reject) => {
-        PeerId.create({ bits: 256, keyType: 'ed25519' },
-        // PeerId.create({ bits: 3072, keyType: 'rsa' },
+        PeerId.create(
+          { bits: 256, keyType: "ed25519" },
+          // PeerId.create({ bits: 3072, keyType: 'rsa' },
           (err, pid) => {
-            if (err) { reject(err); }
+            if (err) {
+              reject(err);
+            }
             resolve(pid);
-          });
+          },
+        );
       });
 
       // save it in the profile
       const buf = myPeerId.marshalPrivKey(); // this is a Buffer
       const enc = await this.encrypt(masterKey, sodium.to_base64(buf));
-      const prom2 = writeFile(node, '/private/key', enc);
+      const prom2 = writeFile(node, "/private/key", enc);
 
-      this.deviceKey = await this.createNewDeviceKey('first key', masterKey);
+      this.deviceKey = await this.createNewDeviceKey("first key", masterKey);
 
       masterKeyCache = masterKey;
       await prom1;
@@ -491,7 +513,7 @@ class GravityProtocol extends EventEmitter {
     this.getMasterKey = async () => {
       if (masterKeyCache) return masterKeyCache;
       if (this.deviceKey === undefined) {
-        throw new Error('Can\'t get master key, no device key loaded');
+        throw new Error("Can't get master key, no device key loaded");
       }
       const name = hashfunc(this.deviceKey);
       const enc = await cat(`/device-keys/${name}`);
@@ -507,9 +529,8 @@ class GravityProtocol extends EventEmitter {
     };
 
     this.decrypt = async (key, nonceAndCiphertext) => {
-      if (nonceAndCiphertext.length
-          < sodium.crypto_secretbox_NONCEBYTES + sodium.crypto_secretbox_MACBYTES) {
-        throw new Error('Short message');
+      if (nonceAndCiphertext.length < sodium.crypto_secretbox_NONCEBYTES + sodium.crypto_secretbox_MACBYTES) {
+        throw new Error("Short message");
       }
       const nonce = nonceAndCiphertext.slice(0, sodium.crypto_secretbox_NONCEBYTES);
       const ciphertext = nonceAndCiphertext.slice(sodium.crypto_secretbox_NONCEBYTES);
@@ -518,25 +539,25 @@ class GravityProtocol extends EventEmitter {
     };
 
     // returns the top level profile hash, the one that should be publicized in the DHT
-    this.getMyProfileHash = async () => (await node.files.stat('/')).hash;
+    this.getMyProfileHash = async () => (await node.files.stat("/")).hash;
 
     this.getContacts = async () => {
       const mkey = await this.getMasterKey();
-      return cat('/private/contacts.json.enc')
-        .then(async contacts => JSON.parse(await this.decrypt(mkey, contacts)))
+      return cat("/private/contacts.json.enc")
+        .then(async (contacts) => JSON.parse(await this.decrypt(mkey, contacts)))
         .catch((err) => {
-          if (err.message.includes('exist')) {
+          if (err.message.includes("exist")) {
             console.log("got this error in getContacts but we're handling it:", err.message);
             return {};
           }
-          console.warn('unexpected error in getContacts');
+          console.warn("unexpected error in getContacts");
           throw err;
         });
     };
 
     this.setAddrs = async (publicKey, newAddrs) => {
       const contacts = await this.getContacts();
-      if (Object.prototype.toString.call(newAddrs) !== '[object Array]') {
+      if (Object.prototype.toString.call(newAddrs) !== "[object Array]") {
         throw new Error(`setAddrs expects newAddrs to be array. got: ${newAddrs} for pubkey: ${publicKey}`);
       }
       if (!(publicKey in contacts)) {
@@ -544,7 +565,7 @@ class GravityProtocol extends EventEmitter {
       }
       contacts[publicKey].addresses = newAddrs;
       const encContacts = await this.encrypt(await this.getMasterKey(), JSON.stringify(contacts));
-      return writeFile(node, '/private/contacts.json.enc', encContacts);
+      return writeFile(node, "/private/contacts.json.enc", encContacts);
     };
 
     // checks if already in contacts
@@ -555,9 +576,9 @@ class GravityProtocol extends EventEmitter {
       //  because it's easier to go from public key to IPNS id (Qm...8g) than vice versa
 
       if (publicKey === this.getPublicKey()) {
-        throw new Error('Tried to add self as subscriber');
+        throw new Error("Tried to add self as subscriber");
       }
-      await encAsymm(publicKey, 'testing'); // test if it's a valid key before adding it and stuff
+      await encAsymm(publicKey, "testing"); // test if it's a valid key before adding it and stuff
 
       const contacts = await this.getContacts();
       let mySecret;
@@ -567,17 +588,17 @@ class GravityProtocol extends EventEmitter {
         contacts[publicKey] = {};
       }
 
-      if ('my-secret' in contacts[publicKey]) {
+      if ("my-secret" in contacts[publicKey]) {
         // 'my-secret' as opposed to 'their-secret', which is in their profile for me
         //  these are the symmetric keys used for everything between me and them
-        mySecret = sodium.from_base64(contacts[publicKey]['my-secret']);
+        mySecret = sodium.from_base64(contacts[publicKey]["my-secret"]);
       } else {
         mySecret = sodium.crypto_secretbox_keygen();
-        contacts[publicKey]['my-secret'] = sodium.to_base64(mySecret);
+        contacts[publicKey]["my-secret"] = sodium.to_base64(mySecret);
 
         // also save it for important future use
         const encContacts = await this.encrypt(await this.getMasterKey(), JSON.stringify(contacts));
-        promisesToWaitFor.push(writeFile(node, '/private/contacts.json.enc', encContacts));
+        promisesToWaitFor.push(writeFile(node, "/private/contacts.json.enc", encContacts));
       }
 
       const message = `Hello ${publicKey} : ${sodium.to_base64(mySecret)}`;
@@ -603,11 +624,11 @@ class GravityProtocol extends EventEmitter {
         // will error if key is wrong. this is good. it gets trapped in the promise correctly
         const res = sodium.to_string(await decAsymm(myPeerId, ciphertext));
 
-        if (res.slice(0, 5) !== 'Hello') {
-          throw new Error('Decrypted message not in the correct format');
+        if (res.slice(0, 5) !== "Hello") {
+          throw new Error("Decrypted message not in the correct format");
         }
 
-        return res.split(': ').pop();
+        return res.split(": ").pop();
       });
 
       return sodium.from_base64(await returnSuccessful(promises));
@@ -619,7 +640,7 @@ class GravityProtocol extends EventEmitter {
     //    one idea: expose an encrypted copy of the key that I can just dec and use here?
     this.getGroupKey = async (publicKey, groupSalt_) => {
       let groupSalt = groupSalt_;
-      if (typeof groupSalt_ !== 'string') {
+      if (typeof groupSalt_ !== "string") {
         groupSalt = sodium.to_base64(groupSalt_);
       }
 
@@ -649,11 +670,11 @@ class GravityProtocol extends EventEmitter {
         const path = await this.lookupProfileHash({ publicKey });
         enc = await cat(`${path}/groups/${groupSalt}/info.json.enc`);
       } catch (err) {
-        if (err.message.includes('exist')) {
-          console.log('Got this error in getGroupInfo but it probably just means there was no group info:', err.message);
+        if (err.message.includes("exist")) {
+          console.log("Got this error in getGroupInfo but it probably just means there was no group info:", err.message);
           return {};
         }
-        console.warn('unexpected error in getGroupInfo');
+        console.warn("unexpected error in getGroupInfo");
         throw err;
       }
       return JSON.parse(await this.decrypt(await groupKey, enc));
@@ -669,11 +690,11 @@ class GravityProtocol extends EventEmitter {
       try {
         enc = await cat(`/groups/${groupSalt}/.metadata/membership-status.json.enc`);
       } catch (err) {
-        if (err.message.includes('exist')) {
-          console.log('Got this error in getGroupMembership which probably means there was no member list:', err.message);
+        if (err.message.includes("exist")) {
+          console.log("Got this error in getGroupMembership which probably means there was no member list:", err.message);
           return {};
         }
-        console.warn('unexpected error in getGroupMembership');
+        console.warn("unexpected error in getGroupMembership");
         throw err;
       }
       return JSON.parse(await this.decrypt(await mk, enc));
@@ -691,11 +712,11 @@ class GravityProtocol extends EventEmitter {
      *  Also, don't forget to check for these in your app and do something about them! (i.e. doCmd)
      */
     const postCmd = async (groupSalt, command, args) => {
-      if (typeof command !== 'string') {
-        throw new Error('postCmd command should be a string');
+      if (typeof command !== "string") {
+        throw new Error("postCmd command should be a string");
       }
-      if (Object.prototype.toString.call(args) !== '[object Array]') {
-        throw new Error('postCmd args should be a list');
+      if (Object.prototype.toString.call(args) !== "[object Array]") {
+        throw new Error("postCmd args should be a list");
       }
 
       const path = this.setupPostMetadata(groupSalt);
@@ -713,7 +734,7 @@ class GravityProtocol extends EventEmitter {
 
     // takes a cmd object (the JSON in main.cmd) and does the appropriate update
     this.doCmd = async (groupSalt, cmdObj) => {
-      const names = ['addToGroup', 'setGroupName', 'setNicknames'];
+      const names = ["addToGroup", "setGroupName", "setNicknames"];
       const funcs = [this.addToGroup, this.setGroupName, this.setNicknames];
       const ind = names.indexOf(cmdObj.cmd);
       if (ind === -1) throw new Error(`unsupported command: ${cmdObj.cmd}`);
@@ -726,21 +747,20 @@ class GravityProtocol extends EventEmitter {
     this.setNicknames = async (groupSalt, publicKeyToName) => {
       // first make sure everyone is in the group
       const contacts = await this.getContacts();
-      const filenames = await ls(`/groups/${groupSalt}`)
-        .then(flist => flist.map(f => f.name));
+      const filenames = await ls(`/groups/${groupSalt}`).then((flist) => flist.map((f) => f.name));
       const myPublicKey = this.getPublicKey();
       const groupKey = await this.getGroupKey(myPublicKey, groupSalt);
 
       const missing = Object.keys(publicKeyToName).filter((pk) => {
         if (pk === myPublicKey) {
-          return !(filenames.includes('me'));
+          return !filenames.includes("me");
         }
         if (!(pk in contacts)) {
           throw new Error(`Tried to add key that's not in contacts: ${pk}`);
         }
-        const sharedKey = sodium.from_base64(contacts[pk]['my-secret']);
+        const sharedKey = sodium.from_base64(contacts[pk]["my-secret"]);
         const name = hashfunc(uintConcat(sodium.from_base64(groupSalt), sharedKey));
-        return !(filenames.includes(name));
+        return !filenames.includes(name);
       });
       if (missing.length > 0) {
         throw new Error(`Tried to set nickname of someone not in the group: ${missing.toString()}`);
@@ -752,9 +772,11 @@ class GravityProtocol extends EventEmitter {
         groupInfo.nicknames = {};
       }
 
-      const namesChanged = Object.keys(publicKeyToName).filter(pk =>
-        // eslint-disable-next-line implicit-arrow-linebreak
-        publicKeyToName[pk] !== groupInfo.nicknames[pk]);
+      const namesChanged = Object.keys(publicKeyToName).filter(
+        (pk) =>
+          // eslint-disable-next-line implicit-arrow-linebreak
+          publicKeyToName[pk] !== groupInfo.nicknames[pk],
+      );
       if (namesChanged.length === 0) {
         return groupInfo;
       }
@@ -764,7 +786,7 @@ class GravityProtocol extends EventEmitter {
       await writeFile(node, `/groups/${groupSalt}/info.json.enc`, enc);
 
       // send a .cmd to the group alerting others to the change
-      await postCmd(groupSalt, 'setNicknames', [publicKeyToName]);
+      await postCmd(groupSalt, "setNicknames", [publicKeyToName]);
 
       return groupInfo;
     };
@@ -781,10 +803,10 @@ class GravityProtocol extends EventEmitter {
     // groupID is optional. useful if you're trying to semantically link this group to a friend's
     this.createGroup = async (publicKeys_, /* optional */ groupID) => {
       const mypk = this.getPublicKey();
-      const publicKeys = publicKeys_.filter(k => k !== mypk);
+      const publicKeys = publicKeys_.filter((k) => k !== mypk);
 
       const contacts = await this.getContacts();
-      const missing = publicKeys.filter(k => !(k in contacts));
+      const missing = publicKeys.filter((k) => !(k in contacts));
       if (missing.length > 0) {
         throw new Error(`Add the following public keys to your contacts first! ${missing}`);
       }
@@ -820,7 +842,7 @@ class GravityProtocol extends EventEmitter {
       //   there just aren't nicknames for anonymous groups.
       //   The place to change your name for such groups is a group-specific bio)
       const nicknames = {};
-      nicknames[mypk] = '';
+      nicknames[mypk] = "";
       await this.setNicknames(sodium.to_base64(salt), nicknames);
 
       return sodium.to_base64(salt);
@@ -829,15 +851,15 @@ class GravityProtocol extends EventEmitter {
     // salt should be a string
     this.addToGroup = async (salt, publicKeys_, /* optional */ { anonymous } = {}) => {
       const mypk = this.getPublicKey();
-      let publicKeys = publicKeys_.filter(k => k !== mypk);
+      let publicKeys = publicKeys_.filter((k) => k !== mypk);
 
       if (publicKeys.length === 0) {
-        console.warn('addToGroup called with empty list (or your own pubkey)');
+        console.warn("addToGroup called with empty list (or your own pubkey)");
         return;
       }
 
       const contacts = await this.getContacts();
-      const missing = publicKeys.filter(k => !(k in contacts));
+      const missing = publicKeys.filter((k) => !(k in contacts));
       if (missing.length > 0) {
         throw new Error(`Add the following public keys to your contacts first! ${missing}`);
       }
@@ -847,11 +869,11 @@ class GravityProtocol extends EventEmitter {
 
       const message = JSON.stringify([sodium.to_base64(groupKey)]);
 
-      const files = (await ls(groupdir)).map(f => f.name);
+      const files = (await ls(groupdir)).map((f) => f.name);
 
       const pkNameMap = {};
       const promises = publicKeys.map(async (pk) => {
-        const sharedKey = sodium.from_base64(contacts[pk]['my-secret']);
+        const sharedKey = sodium.from_base64(contacts[pk]["my-secret"]);
         const name = hashfunc(uintConcat(sodium.from_base64(salt), sharedKey));
         // check if they're already in the group
         if (files.includes(name)) return undefined;
@@ -863,9 +885,9 @@ class GravityProtocol extends EventEmitter {
       });
 
       // filter out all the ones that were already there
-      publicKeys = (await Promise.all(promises)).filter(pk => pk !== undefined);
+      publicKeys = (await Promise.all(promises)).filter((pk) => pk !== undefined);
       if (publicKeys.length === 0) {
-        console.warn('all public keys being added were already in the group');
+        console.warn("all public keys being added were already in the group");
         return;
       }
 
@@ -878,13 +900,13 @@ class GravityProtocol extends EventEmitter {
       await writeFile(node, `${groupdir}/.metadata/membership-status.json.enc`, enc);
 
       // send a .cmd to the group alerting others to the change
-      await postCmd(salt, 'addToGroup', [publicKeys]);
+      await postCmd(salt, "addToGroup", [publicKeys]);
 
       if (!anonymous) {
         // now set all nicknames to "" so everyone knows who's in the group
         const nicknames = {};
         publicKeys.forEach((k) => {
-          nicknames[k] = '';
+          nicknames[k] = "";
         });
         await this.setNicknames(salt, nicknames);
       }
@@ -892,7 +914,7 @@ class GravityProtocol extends EventEmitter {
 
     // sets the 'name' field in the group info
     this.setGroupName = async (groupSalt, newName) => {
-      if (typeof newName !== 'string') throw new Error('group name should be string');
+      if (typeof newName !== "string") throw new Error("group name should be string");
 
       const groupInfo = await this.getGroupInfo(groupSalt, this.getPublicKey());
 
@@ -905,7 +927,7 @@ class GravityProtocol extends EventEmitter {
       await writeFile(node, `/groups/${groupSalt}/info.json.enc`, enc);
 
       // send a .cmd to the group alerting others to the change
-      await postCmd(groupSalt, 'setGroupName', [newName]);
+      await postCmd(groupSalt, "setGroupName", [newName]);
 
       return groupInfo;
     };
@@ -914,26 +936,23 @@ class GravityProtocol extends EventEmitter {
     this.getGroupList = async (publicKey) => {
       try {
         if (publicKey === this.getPublicKey()) {
-          return await ls('/groups')
-            .then(flist => flist.map(f => f.name));
+          return await ls("/groups").then((flist) => flist.map((f) => f.name));
         }
 
         const key = this.getFriendKey(publicKey);
 
         const friendPath = await this.lookupProfileHash({ publicKey });
-        const groups = await ls(`${friendPath}/groups`)
-          .then(flist => flist.map(f => f.name));
+        const groups = await ls(`${friendPath}/groups`).then((flist) => flist.map((f) => f.name));
 
         return filter(groups, async (g) => {
           // check if there's a folder corresponding to your shared key
-          const files = ls(`${friendPath}/groups/${g}`)
-            .then(flist => flist.map(f => f.name));
+          const files = ls(`${friendPath}/groups/${g}`).then((flist) => flist.map((f) => f.name));
           const salt = sodium.from_base64(g);
           return (await files).includes(hashfunc(uintConcat(salt, await key)));
         });
       } catch (err) {
-        if (err.message.includes('exist')) {
-          console.log('Got this error in getGroupList but it probably means the folder doesn\'t exist:', err.message);
+        if (err.message.includes("exist")) {
+          console.log("Got this error in getGroupList but it probably means the folder doesn't exist:", err.message);
           return [];
         }
         throw err;
@@ -944,25 +963,23 @@ class GravityProtocol extends EventEmitter {
     this.getBio = async (publicKey, groupSalt) => {
       const path = await this.lookupProfileHash({ publicKey });
       try {
-        if (groupSalt === 'public') {
-          return await cat(`${path}/bio/public.json`)
-            .then(bio => JSON.parse(bio.toString()));
+        if (groupSalt === "public") {
+          return await cat(`${path}/bio/public.json`).then((bio) => JSON.parse(bio.toString()));
         }
         const groupKey = await this.getGroupKey(publicKey, groupSalt).catch(() => {
           // here so we don't mistake an issue with the given groupSalt
           //  for the file just not existing yet
-          throw new Error('[getBio] something is wrong with the groupSalt');
+          throw new Error("[getBio] something is wrong with the groupSalt");
         });
         const salt = await cat(`${path}/bio/salt`);
         const filename = hashfunc(uintConcat(salt, groupKey));
-        return await cat(`${path}/bio/${filename}.json.enc`)
-          .then(async bio => JSON.parse(await this.decrypt(groupKey, bio)));
+        return await cat(`${path}/bio/${filename}.json.enc`).then(async (bio) => JSON.parse(await this.decrypt(groupKey, bio)));
       } catch (err) {
-        if (err.message.includes('exist')) {
+        if (err.message.includes("exist")) {
           console.log("got this error in getBio but we're handling it:", err.message);
           return {};
         }
-        console.warn('unexpected error in getBio');
+        console.warn("unexpected error in getBio");
         throw err;
       }
     };
@@ -974,20 +991,20 @@ class GravityProtocol extends EventEmitter {
 
       let salt;
       try {
-        salt = await cat('/bio/salt');
+        salt = await cat("/bio/salt");
       } catch (err) {
-        if (err.message.includes('exist')) {
-          console.log('got this error in setBio so making new salt:', err.message);
+        if (err.message.includes("exist")) {
+          console.log("got this error in setBio so making new salt:", err.message);
           salt = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
-          await writeFile(node, '/bio/salt', salt);
+          await writeFile(node, "/bio/salt", salt);
         } else {
           throw err;
         }
       }
 
       let data = JSON.stringify(bio);
-      let filename = 'public.json';
-      if (groupSalt !== 'public') {
+      let filename = "public.json";
+      if (groupSalt !== "public") {
         const groupKey = await this.getGroupKey(this.getPublicKey(), groupSalt);
         data = await this.encrypt(groupKey, data);
         filename = `${hashfunc(uintConcat(salt, groupKey))}.json.enc`;
@@ -1018,21 +1035,23 @@ class GravityProtocol extends EventEmitter {
       if (addrsToTry === undefined) {
         const contacts = await this.getContacts();
 
-        addrsToTry = Object.keys(contacts).map(k =>
-        // eslint-disable-next-line implicit-arrow-linebreak
-          (contacts[k].addresses ? contacts[k].addresses : [])).flat();
+        addrsToTry = Object.keys(contacts)
+          .map((k) =>
+            // eslint-disable-next-line implicit-arrow-linebreak
+            contacts[k].addresses ? contacts[k].addresses : [],
+          )
+          .flat();
       }
 
       addrsToTry.concat(ALWAYS_ADD_ADDRS).forEach((addr) => {
-        this.sendToPeer(addr, message)
-          .catch((err) => {
-            console.log(`failed to publish to peer: ${addr}`);
-            console.log(err);
-          });
+        this.sendToPeer(addr, message).catch((err) => {
+          console.log(`failed to publish to peer: ${addr}`);
+          console.log(err);
+        });
       });
     };
 
-    this.connectToAddr = async address => node.swarm.connect(address);
+    this.connectToAddr = async (address) => node.swarm.connect(address);
 
     this.getIpfsPeers = async () => node.swarm.peers();
 
@@ -1042,7 +1061,7 @@ class GravityProtocol extends EventEmitter {
     this.clearBlacklist = async () => {
       const addrs = await node.swarm.addrs();
       // eslint-disable-next-line no-underscore-dangle
-      addrs.map(peerInfo => node.libp2p._switch.dialer.clearDenylist(peerInfo));
+      addrs.map((peerInfo) => node.libp2p._switch.dialer.clearDenylist(peerInfo));
     };
 
     // this function creates the correct folders and sets up all the metadata for a post
@@ -1059,8 +1078,8 @@ class GravityProtocol extends EventEmitter {
 
       // validate inputs
       // tags should be list of strings
-      if (tags !== undefined && tags.some(t => typeof t !== 'string')) {
-        throw new Error('tags passed to setupPostMetadata must be strings');
+      if (tags !== undefined && tags.some((t) => typeof t !== "string")) {
+        throw new Error("tags passed to setupPostMetadata must be strings");
       }
       /* validate parent paths
           bare minimum is valid ipfs or ipns path (starting with '/ip[fn]s/')
@@ -1068,8 +1087,8 @@ class GravityProtocol extends EventEmitter {
               should be of the form: /ipns/id-of-author/posts/year/month/day/group-secret-salt-hash
             but it could be useful to reply to arbitrary ipfs content so that's not enforced
       */
-      if (parents !== undefined && parents.some(p => !isIPFS.path(p))) {
-        throw new Error('invalid parents passed to setupPostMetadata');
+      if (parents !== undefined && parents.some((p) => !isIPFS.path(p))) {
+        throw new Error("invalid parents passed to setupPostMetadata");
       }
 
       let groupKey;
@@ -1095,7 +1114,7 @@ class GravityProtocol extends EventEmitter {
       try {
         salt = await cat(`${path}/salt`);
       } catch (err) {
-        if (err.message.includes('exist')) {
+        if (err.message.includes("exist")) {
           console.log("got this error in setupPostMetadata but it probably just means there's no salt yet:", err.message);
           salt = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
           promisesToWaitFor.push(writeFile(node, `${path}/salt`, salt));
@@ -1145,8 +1164,8 @@ class GravityProtocol extends EventEmitter {
     // returns path to post
     this.postTxt = async (groupSalt, text, /* optional */ parents, tags) => {
       // validate. setupPostMetadata checks the rest
-      if (typeof text !== 'string') {
-        throw new Error('postTxt requires content to be string');
+      if (typeof text !== "string") {
+        throw new Error("postTxt requires content to be string");
       }
 
       const path = this.setupPostMetadata(groupSalt, parents, tags);
@@ -1161,14 +1180,17 @@ class GravityProtocol extends EventEmitter {
     // decided reacts are best posted by hash since they'll get lots of re-use
     // returns path to post
     this.postReact = async (groupSalt, link, parents) => {
-      if (true) { throw new Error('not in MVP'); } // AKA untested and unused
+      if (true) {
+        throw new Error("not in MVP");
+      } // AKA untested and unused
 
       // validate
       if (!isIPFS.ipfsPath(link)) {
-        throw new Error('postReact link must be valid IPFS path');
+        throw new Error("postReact link must be valid IPFS path");
       }
-      if (!parents) { // rest is checked in setupPostMetadata
-        throw new Error('no postReact parents; you must be reacting to something');
+      if (!parents) {
+        // rest is checked in setupPostMetadata
+        throw new Error("no postReact parents; you must be reacting to something");
       }
 
       const path = this.setupPostMetadata(groupSalt, parents);
@@ -1186,12 +1208,14 @@ class GravityProtocol extends EventEmitter {
     // if image is the image data itself, an extension is required to identify it, e.g. gif, jpg
     // returns ready-to-use ipfs link to that react
     this.createNewReact = async (groupSalt, label_, image, extension_) => {
-      if (true) { throw new Error('not in MVP'); } // AKA untested and unused
+      if (true) {
+        throw new Error("not in MVP");
+      } // AKA untested and unused
 
       // make sure there aren't illegal characters
-      const label = label_.replace(/[:\s/]+/g, '');
+      const label = label_.replace(/[:\s/]+/g, "");
       if (label !== label_) {
-        console.warn('Filtered out illegal label chars in createNewReact');
+        console.warn("Filtered out illegal label chars in createNewReact");
       }
 
       const groupKey = this.getGroupKey(this.getPublicKey(), groupSalt);
@@ -1204,12 +1228,12 @@ class GravityProtocol extends EventEmitter {
       } else {
         // TODO: validate image type. not sure what that's going to be yet. probably buffer
 
-        const extension = extension_.replace(/\.+/g, '');
-        const validImageExtensions = ['jpeg', 'jpg', 'png', 'gif'];
+        const extension = extension_.replace(/\.+/g, "");
+        const validImageExtensions = ["jpeg", "jpg", "png", "gif"];
         if (!extension) {
-          throw new Error('createNewReact with image data needs to know the extension');
-        } else if (!(validImageExtensions.includes(extension))) {
-          throw new Error('invalid image extension for createNewReact');
+          throw new Error("createNewReact with image data needs to know the extension");
+        } else if (!validImageExtensions.includes(extension)) {
+          throw new Error("invalid image extension for createNewReact");
         }
         // need to encrypt and write the image
         // TODO: maybe use the streams here? these are not small objects
@@ -1239,24 +1263,25 @@ class GravityProtocol extends EventEmitter {
       if (publicKey !== undefined) obj.publicKey = publicKey;
       if (addresses !== undefined) obj.addresses = addresses;
 
-      return 'https://magic.gravitynet.io/?add='.concat(sodium.to_base64(JSON.stringify(obj)));
+      return "https://magic.gravitynet.io/?add=".concat(sodium.to_base64(JSON.stringify(obj)));
     };
 
     // this is what you share to get people to add you
     // TODO: make it an actual URL-safe link
-    this.getMagicLink = async () => this.generateMagicLink({
-      publicKey: this.getPublicKey(),
-      addresses: (await this.getIpfsNodeInfo()).addresses,
-    });
+    this.getMagicLink = async () =>
+      this.generateMagicLink({
+        publicKey: this.getPublicKey(),
+        addresses: (await this.getIpfsNodeInfo()).addresses,
+      });
 
     // useful for external dry runs where you don't want to add them yet
     // returns the expected `magic` object
     this.parseAndValidateMagicLink = (magicLink) => {
-      const magicString = magicLink.slice(magicLink.lastIndexOf('=') + 1);
+      const magicString = magicLink.slice(magicLink.lastIndexOf("=") + 1);
       const magic = JSON.parse(sodium.to_string(sodium.from_base64(magicString)));
 
-      if (!('publicKey' in magic) || typeof magic.publicKey !== 'string') {
-        throw new Error('magic link missing publicKey');
+      if (!("publicKey" in magic) || typeof magic.publicKey !== "string") {
+        throw new Error("magic link missing publicKey");
       }
 
       return magic;
@@ -1281,7 +1306,7 @@ class GravityProtocol extends EventEmitter {
         }
 
         const encContacts = this.encrypt(await this.getMasterKey(), JSON.stringify(contacts));
-        await writeFile(node, '/private/contacts.json.enc', await encContacts);
+        await writeFile(node, "/private/contacts.json.enc", await encContacts);
       }
     };
 
@@ -1293,16 +1318,14 @@ class GravityProtocol extends EventEmitter {
       await sleep(2000);
 
       const contacts = await this.getContacts();
-      console.log('Attempting to connect to many old addresses...');
+      console.log("Attempting to connect to many old addresses...");
       ALWAYS_ADD_ADDRS.forEach((addr) => {
-        this.connectToAddr(addr)
-          .catch(err => console.log(err.message));
+        this.connectToAddr(addr).catch((err) => console.log(err.message));
       });
       Object.keys(contacts).forEach((key) => {
         if (contacts[key].addresses) {
           contacts[key].addresses.forEach((addr) => {
-            this.connectToAddr(addr)
-              .catch(err => console.log(err.message));
+            this.connectToAddr(addr).catch((err) => console.log(err.message));
           });
         }
       });
@@ -1312,31 +1335,39 @@ class GravityProtocol extends EventEmitter {
     };
 
     // sends message to the specified peer address
-    this.sendToPeer = async (addr, message) => { // eslint-disable-line arrow-body-style
+    this.sendToPeer = async (addr, message) => {
+      // eslint-disable-line arrow-body-style
       /* TODO: keep one connection open and reuse it like so:
           https://github.com/libp2p/js-libp2p/blob/master/examples/chat/src/dialer.js
           - don't forget to handle connections opening/closing randomly even if peers still online
             (https://github.com/ipfs/js-ipfs/issues/2288)
       */
       return new Promise((resolve, reject) => {
-        node.libp2p.dialProtocol(addr, '/gravity/0.0.1', (err, conn) => {
+        node.libp2p.dialProtocol(addr, "/gravity/0.0.1", (err, conn) => {
           if (err) {
             reject(err);
           }
-          pull(pull.values([message]), conn, pull.collect((err2, data) => {
-            if (err2) {
-              reject(err2);
-            }
-            if (LOG_MESSAGES) { console.log(`got response: ${data.toString().slice(0, 12)}...`); }
+          pull(
+            pull.values([message]),
+            conn,
+            pull.collect((err2, data) => {
+              if (err2) {
+                reject(err2);
+              }
+              if (LOG_MESSAGES) {
+                console.log(`got response: ${data.toString().slice(0, 12)}...`);
+              }
 
-            const split = data.toString().split(/\s+/);
+              const split = data.toString().split(/\s+/);
 
-            if (split[0] === 'p') { // post
-              resolve(this.handlePost(split));
-            }
+              if (split[0] === "p") {
+                // post
+                resolve(this.handlePost(split));
+              }
 
-            resolve();
-          }));
+              resolve();
+            }),
+          );
         });
       });
     };
@@ -1344,15 +1375,17 @@ class GravityProtocol extends EventEmitter {
     const getIpnsRecordStore = async () => {
       const mk = await this.getMasterKey();
       try {
-        const files = (await ls('/private/records')).map(f => f.name);
+        const files = (await ls("/private/records")).map((f) => f.name);
         const savedMap = {};
 
-        await Promise.all(files.map(async (f) => {
-          const data = await cat(`/private/records/${f}`);
-          const item = JSON.parse(await this.decrypt(mk, data));
-          const id = Object.keys(item)[0];
-          savedMap[id] = item[id];
-        }));
+        await Promise.all(
+          files.map(async (f) => {
+            const data = await cat(`/private/records/${f}`);
+            const item = JSON.parse(await this.decrypt(mk, data));
+            const id = Object.keys(item)[0];
+            savedMap[id] = item[id];
+          }),
+        );
 
         Object.keys(savedMap).forEach((pk) => {
           savedMap[pk].pubKey = Buffer.from(savedMap[pk].pubKey);
@@ -1362,12 +1395,12 @@ class GravityProtocol extends EventEmitter {
 
         return savedMap;
       } catch (err) {
-        if (err.message.includes('exist')) {
+        if (err.message.includes("exist")) {
           // I think this should only happen if the profile in question has no /posts dir
           console.log("got this error in getIpnsRecordStore but we're handling it:", err.message);
           return {};
         }
-        console.warn('unexpected error in getIpnsRecordStore');
+        console.warn("unexpected error in getIpnsRecordStore");
         throw err;
       }
     };
@@ -1379,7 +1412,7 @@ class GravityProtocol extends EventEmitter {
       // the '0' is in case I feel like changing this convention
       //  -- I can just increment it and easily tell them apart
       // also, space isn't really a constraint here so making the name longer is fine
-      const name = '0'.concat(hashfunc(uintConcat(mk, multihash.fromB58String(id))));
+      const name = "0".concat(hashfunc(uintConcat(mk, multihash.fromB58String(id))));
       // the point here is just to have a deterministic name for this file
       //  that also doesn't reveal whose records they are (hence mixing in the master key)
       const recordObj = {};
@@ -1390,7 +1423,7 @@ class GravityProtocol extends EventEmitter {
 
     // simple function, just takes a post request and sends it to the next thing
     // exists because it happens in two places, and DRY
-    this.handlePost = async split => this.ingestIpnsRecord(split[1], { postData: split.splice(2).join(' ') });
+    this.handlePost = async (split) => this.ingestIpnsRecord(split[1], { postData: split.splice(2).join(" ") });
 
     // checks if the new record is valid and more recent. if so, updates our list
     this.ingestIpnsRecord = async (newRecordProto64, /* optional */ additionalEventData = {}) => {
@@ -1408,8 +1441,8 @@ class GravityProtocol extends EventEmitter {
       if (!ipnsMap[ipnsId] || newRecord.sequence > ipnsMap[ipnsId].sequence) {
         // the new record is more recent
 
-        const pubKey = await ipns.extractPublicKey({ pubKey: 'dummy' }, newRecord);
-        if (pubKey === 'dummy') {
+        const pubKey = await ipns.extractPublicKey({ pubKey: "dummy" }, newRecord);
+        if (pubKey === "dummy") {
           console.warn("public key wasn't attached to record");
           return;
         }
@@ -1423,7 +1456,7 @@ class GravityProtocol extends EventEmitter {
 
         // emit an event if this is really new content
         if (ipnsMap[ipnsId] === undefined || ipnsMap[ipnsId].value !== newRecord.value) {
-          this.emit('new-record', Object.assign(additionalEventData, { id: ipnsId, record: newRecord }));
+          this.emit("new-record", Object.assign(additionalEventData, { id: ipnsId, record: newRecord }));
         }
 
         // note the last time this entry was checked
@@ -1438,11 +1471,7 @@ class GravityProtocol extends EventEmitter {
     // returns the most recent top level hash of the profile associated with the given public key
     // will query peers for most up to date value if timeout is nonzero, otherwise pulls from cache
     // needs either an IPNS ID or a public key. will prefer IPNS ID if both are given
-    this.lookupProfileHash = async ({
-      publicKey,
-      ipnsId: ipnsId_,
-      timeout = 1000,
-    } = {}) => {
+    this.lookupProfileHash = async ({ publicKey, ipnsId: ipnsId_, timeout = 1000 } = {}) => {
       let ipnsId;
       if (ipnsId_ !== undefined && isIPFS.cid(ipnsId_)) {
         ipnsId = ipnsId_;
@@ -1450,14 +1479,13 @@ class GravityProtocol extends EventEmitter {
         ipnsId = this.pubkeyToIpnsId(publicKey);
       }
 
-      if (ipnsId === (this.getIpnsId())) {
+      if (ipnsId === this.getIpnsId()) {
         return `/ipfs/${await this.getMyProfileHash()}`;
       }
 
       // check if the most recent record was refreshed recently enough,
       //  as determined by MIN_IPNS_OUTDATEDNESS
-      if (ipnsId in ipnsMap
-          && Math.abs(Date.now() - ipnsMap[ipnsId].lastCheck) < MIN_IPNS_OUTDATEDNESS) {
+      if (ipnsId in ipnsMap && Math.abs(Date.now() - ipnsMap[ipnsId].lastCheck) < MIN_IPNS_OUTDATEDNESS) {
         return ipnsMap[ipnsId].value;
       }
 
@@ -1467,15 +1495,17 @@ class GravityProtocol extends EventEmitter {
         //  for example, you could only ask people in a certain more trusted group
         //  or you could try a few people first, and then more if that fails
         // for now, ask everyone at once
-        const addrsToTry = Object.keys(contacts).map(k =>
-        // eslint-disable-next-line implicit-arrow-linebreak
-          (contacts[k].addresses ? contacts[k].addresses : [])).flat();
+        const addrsToTry = Object.keys(contacts)
+          .map((k) =>
+            // eslint-disable-next-line implicit-arrow-linebreak
+            contacts[k].addresses ? contacts[k].addresses : [],
+          )
+          .flat();
 
         addrsToTry.concat(ALWAYS_ADD_ADDRS).forEach((addr) => {
-          this.sendToPeer(addr, `g ${ipnsId}`)
-            .catch((err) => {
-              console.log(`failed asking peer for help: ${addr}`, '\nerror msg:', err.message);
-            });
+          this.sendToPeer(addr, `g ${ipnsId}`).catch((err) => {
+            console.log(`failed asking peer for help: ${addr}`, "\nerror msg:", err.message);
+          });
         });
 
         // TODO: there's a way better way to do this with promises.
@@ -1484,7 +1514,7 @@ class GravityProtocol extends EventEmitter {
       }
 
       if (ipnsMap[ipnsId] === undefined) {
-        throw new Error('could not find IPNS record before timeout :(');
+        throw new Error("could not find IPNS record before timeout :(");
       }
 
       // note the last time this entry was checked
@@ -1515,18 +1545,18 @@ class GravityProtocol extends EventEmitter {
     this.getPostLinks = async (groupKey, path, salt_ = undefined) => {
       let salt = salt_;
       const files = await ls(path)
-        .then(flist => flist.map(f => f.name))
+        .then((flist) => flist.map((f) => f.name))
         .catch((err) => {
-          if (err.message.includes('exist')) {
+          if (err.message.includes("exist")) {
             // I think this should only happen if the profile in question has no /posts dir
             console.log("got this error in getPostLinks but we're handling it:", err.message);
             return [];
           }
-          console.warn('unexpected error in getPostLinks');
+          console.warn("unexpected error in getPostLinks");
           throw err;
         });
       let postList = [];
-      if (files.includes('salt')) {
+      if (files.includes("salt")) {
         salt = await cat(`${path}/salt`);
       }
       if (salt !== undefined) {
@@ -1534,14 +1564,13 @@ class GravityProtocol extends EventEmitter {
         const name = hashfunc(uintConcat(salt, groupKey));
         if (files.includes(name)) {
           // a folder for this group! return a list of all the post dirs
-          const posts = await ls(`${path}/${name}`)
-            .then(flist => flist.map(f => f.name));
-          postList = postList.concat(posts.map(p => `${path}/${name}/${p}`));
+          const posts = await ls(`${path}/${name}`).then((flist) => flist.map((f) => f.name));
+          postList = postList.concat(posts.map((p) => `${path}/${name}/${p}`));
         }
       }
       // also try recursing deeper, but proactively ignore folders that definitely aren't dates
-      const dirsToTry = files.filter(f => /^\d+$/g.test(f));
-      const promises = dirsToTry.map(d => this.getPostLinks(groupKey, `${path}/${d}`, salt));
+      const dirsToTry = files.filter((f) => /^\d+$/g.test(f));
+      const promises = dirsToTry.map((d) => this.getPostLinks(groupKey, `${path}/${d}`, salt));
       postList = postList.concat((await Promise.all(promises)).flat());
 
       return postList;
@@ -1559,31 +1588,29 @@ class GravityProtocol extends EventEmitter {
     };
 
     this.readPostMetadata = async (groupKey, path) =>
-    // eslint-disable-next-line implicit-arrow-linebreak
+      // eslint-disable-next-line implicit-arrow-linebreak
       JSON.parse(await this.decrypt(groupKey, await cat(`${path}/meta.json`)));
 
     this.readPostData = async (groupKey, path) => {
-      const files = await ls(path)
-        .then(flist => flist.map(f => f.name).filter(f => !/^meta\.json/.test(f)));
-      const mainName = files.filter(f => /^main\./.test(f))[0];
+      const files = await ls(path).then((flist) => flist.map((f) => f.name).filter((f) => !/^meta\.json/.test(f)));
+      const mainName = files.filter((f) => /^main\./.test(f))[0];
       if (mainName === undefined) {
         return undefined;
       }
       return (await this.decrypt(groupKey, await cat(`${path}/${mainName}`))).toString();
     };
 
-
     const setup = async () => {
       await this.ready;
 
       // sanity check
-      if ((this.getIpnsId()) !== this.pubkeyToIpnsId(this.getPublicKey())) {
-        throw new Error('WATCH OUT! pubkeyToIpnsId IS OUT OF DATE');
+      if (this.getIpnsId() !== this.pubkeyToIpnsId(this.getPublicKey())) {
+        throw new Error("WATCH OUT! pubkeyToIpnsId IS OUT OF DATE");
       }
 
       // the other half of the IPNS setup
       // ingests get and post requests for IPNS records, responding to gets
-      node.libp2p.handle('/gravity/0.0.1', (protocolName, connection) => {
+      node.libp2p.handle("/gravity/0.0.1", (protocolName, connection) => {
         // this protocol, used here and in this.sendToPeer, has two possible message:
         // `g ${ipns ID}` - "please send me your best record for this ID (user)"
         // `p ${ipns record}` - any IPNS record (you're responsible for interpreting and validating)
@@ -1591,15 +1618,19 @@ class GravityProtocol extends EventEmitter {
         pull(
           connection,
           pull.asyncMap(async (data, cb) => {
-            if (LOG_MESSAGES) { console.log(`received: ${data.toString().slice(0, 12)}...`); }
+            if (LOG_MESSAGES) {
+              console.log(`received: ${data.toString().slice(0, 12)}...`);
+            }
             const split = data.toString().split(/\s+/);
 
-            if (split[0] === 'p') { // post
+            if (split[0] === "p") {
+              // post
               this.handlePost(split);
-            } else if (split[0] === 'g') { // it's a get, need to respond
+            } else if (split[0] === "g") {
+              // it's a get, need to respond
               // TODO: responding blindly reveals who we're friends with (by what's in the cache).
               //  maybe don't respond to all of them
-              if (split[1] === (this.getIpnsId())) {
+              if (split[1] === this.getIpnsId()) {
                 // if they're asking for mine, might as well give the most up to date answer
                 await this.publishProfile([]);
               }
@@ -1619,19 +1650,18 @@ class GravityProtocol extends EventEmitter {
       try {
         ipnsMap = Object.assign(await getIpnsRecordStore(), ipnsMap);
       } catch (err) {
-        console.warn('ipnsRecordStore load failed');
+        console.warn("ipnsRecordStore load failed");
         console.error(err);
       }
 
       // set most up to date address
       // TODO: be more careful not to override other devices' addresses
-      await this.setBio('public', { addresses: (await this.getIpfsNodeInfo()).addresses });
+      await this.setBio("public", { addresses: (await this.getIpfsNodeInfo()).addresses });
 
       // await this.autoconnectPeers();
     };
     setup();
   }
 }
-
 
 module.exports = GravityProtocol;
