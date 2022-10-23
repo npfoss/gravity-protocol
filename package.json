@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "description": "Sample implementation of the protocol underlying the Gravity social network.",
   "main": "src/index.js",
+  "type": "module",
   "scripts": {
     "lint": "eslint src/",
     "lint-fix": "eslint src/ --fix",
@@ -19,15 +20,7 @@
   },
   "homepage": "https://www.gravitynet.io",
   "dependencies": {
-    "buffer": "^5.2.1",
-    "ipfs": "^0.38.1",
-    "ipns": "^0.6.1",
-    "libsodium-wrappers": "^0.7.4",
-    "multihashes": "^0.4.15",
-    "multihashing": "^0.3.3",
-    "node-rsa": "^1.0.5",
-    "peer-id": "~0.12.5",
-    "pull-stream": "^3.6.13"
+    "ipfs-core": "^0.16.1"
   },
   "devDependencies": {
     "prettier": "^2.7.1"

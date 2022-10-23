@@ -1,3 +1,46 @@
+import * as IPFS from "ipfs-core";
+
+//
+
+/***** UTILS *****/
+
+const deferredPromise = () => {
+  let resolve = () => {};
+  let reject = () => {};
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
+//
+
+// real stuff
+
+export default class Gravity {
+  constructor() {
+    const deferredProm = deferredPromise();
+    this.ready = deferredProm.promise;
+    this.init(deferredProm.resolve);
+  }
+
+  // private
+  async init(resolve) {
+    this.ipfs = await IPFS.create();
+    const version = await this.ipfs.version();
+    console.log("Version:", version);
+
+    resolve();
+  }
+}
+
+// just for testing stuff rn
+
+new Gravity();
+
+//
+
 /* THE OLD VERSION -- will probably rope pieces in over time
 
 const IPFS = require("ipfs");
@@ -1665,7 +1708,4 @@ class GravityProtocol extends EventEmitter {
     setup();
   }
 }
-
-module.exports = GravityProtocol;
-
- */
+*/
