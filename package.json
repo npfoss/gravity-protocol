@@ -1,12 +1,12 @@
 {
   "name": "gravity-protocol",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Sample implementation of the protocol underlying the Gravity social network.",
-  "main": "src/index.js",
+  "main": "dist/index.js",
   "scripts": {
-    "lint": "eslint src/",
-    "lint-fix": "eslint src/ --fix",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc",
+    "run": "node dist/index.js",
+    "lint:fix": "eslint src/ --fix"
   },
   "repository": {
     "type": "git",
@@ -17,21 +17,16 @@
   "bugs": {
     "url": "https://github.com/npfoss/gravity-protocol/issues"
   },
-  "homepage": "https://www.gravitynet.io",
+  "homepage": "https://github.com/npfoss/gravity-protocol#readme",
   "dependencies": {
-    "buffer": "^5.2.1",
-    "ipfs": "^0.38.1",
-    "ipns": "^0.6.1",
-    "libsodium-wrappers": "^0.7.4",
-    "multihashes": "^0.4.15",
-    "multihashing": "^0.3.3",
-    "node-rsa": "^1.0.5",
-    "peer-id": "~0.12.5",
-    "pull-stream": "^3.6.13"
+    "typescript": "^4.8.4"
   },
   "devDependencies": {
-    "eslint": "^6.6.0",
-    "eslint-config-airbnb-base": "^13.1.0",
-    "eslint-plugin-import": "^2.18.0"
+    "@types/node": "^18.11.3",
+    "@typescript-eslint/eslint-plugin": "^5.40.1",
+    "@typescript-eslint/parser": "^5.40.1",
+    "eslint": "^8.26.0",
+    "eslint-config-prettier": "^8.5.0",
+    "eslint-plugin-prettier": "^4.2.1"
   }
 }
