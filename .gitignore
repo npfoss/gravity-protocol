@@ -1,5 +1,11 @@
 .idea
 
+dist
+
+# yarn
+.pnp.cjs
+.yarn
+
 # Logs
 logs
 *.log
