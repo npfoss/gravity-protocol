@@ -5,6 +5,7 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -b",
+    "lint": "eslint src",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -21,6 +22,9 @@
   },
   "homepage": "https://github.com/npfoss/gravity-protocol#readme",
   "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "~5.53.0",
+    "@typescript-eslint/parser": "~5.53.0",
+    "eslint": "~8.34.0",
     "prettier": "~2.8.4",
     "typescript": "~4.9.5"
   }
