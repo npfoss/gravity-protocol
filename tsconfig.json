@@ -4,7 +4,7 @@
 
   "compilerOptions": {
     "lib": ["es2021", "dom"],
-    "module": "commonjs",
+    "module": "es2020",
     "target": "es2021",
     "moduleResolution": "node",
 
