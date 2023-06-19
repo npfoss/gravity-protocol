@@ -1,3 +1,8 @@
+Note: all the peering servers have stopped running, so this no longer works unless you run your own.
+It's currently unmaintained, but still interesting.
+A new iteration of similar ideas is [Dynamic ID](https://dynamicid.org), which is actively under development.
+
+
 # Gravity
 
 Gravity is an open and decentralized private social network.
@@ -45,29 +50,6 @@ gp.ready.then(() => {
 
 For a real example of the protocol in use and interacting with the rest of the network,
 see [gravity-minimal](https://github.com/npfoss/gravity-minimal).
-
-## Contribute
-
-Contributions are welcome!
-Feel free to open PRs, just make sure to always lint with `npm run lint-fix` please.
-
-## Contact
-
-Drop us a line at [hello@gravitynet.io](mailto:hello@gravitynet.io)!
-We accept...
-- ...feedback of any kind
-- ...bug reports (although those are best as [issues](https://github.com/npfoss/gravity-protocol/issues))
-- ...suspected security vulnerabilities
-- ...musings on the future of the internet, connectivity, and human interaction
-- ...anything really, we're always happy to hear from our users
-
-## Acknowledgments
-
-- original idea was [Nate Foss](https://github.com/npfoss)
-- initial system design was Nate Foss, Matthew Pfeiffer, Kifle Woldu, and Arthur Williams
-as our [final project](https://courses.csail.mit.edu/6.857/2019/project/17-Foss-Pfeiffer-Woldu-Williams.pdf) for MIT's 6.857
-- contributors:
-[Nate Foss](https://github.com/npfoss), [Jeff Liu](https://github.com/jeffliu6)
 
 ### IPFS
 
