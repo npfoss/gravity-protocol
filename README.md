@@ -18,7 +18,7 @@ Surely this space is over-saturated...
 
 This repo is a sample implementation of the protocol underlying the Gravity social network.
 Since it's open and decentralized, anyone can participate;
-you don't need to go through [gravitynet.io](https://www.gravitynet.io/) or even use this code to do so.
+you don't need to use any particular app, or even use this code, to do so.
 
 ## Beware
 
